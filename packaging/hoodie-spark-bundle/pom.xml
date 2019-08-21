@@ -72,10 +72,43 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/io.netty.versions.properties</exclude>
+                    <exclude>META-INF/jersey-module-version</exclude>
+                  </excludes>
+                </filter>
+              </filters>
               <relocations>
                 <relocation>
                   <pattern>com.beust.</pattern>
                   <shadedPattern>com.uber.hoodie.com.beust.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>io.netty.</pattern>
+                  <shadedPattern>com.uber.hoodie.io.netty.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>javax.servlet.</pattern>
+                  <shadedPattern>com.uber.hoodie.javax.servlet.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>javax.ws.rs.</pattern>
+                  <shadedPattern>com.uber.hoodie.javax.ws.rs.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>parquet.io.</pattern>
+                  <shadedPattern>com.uber.hoodie.parquet.io.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.apache.parquet.</pattern>
+                  <shadedPattern>com.uber.hoodie.org.apache.parquet.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.xerial.snappy.</pattern>
+                  <shadedPattern>com.uber.hoodie.org.xerial.snappy.</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.joda.</pattern>
