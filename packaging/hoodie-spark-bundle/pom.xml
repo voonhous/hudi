@@ -72,10 +72,45 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/io.netty.versions.properties</exclude>
+                    <exclude>META-INF/jersey-module-version</exclude>
+                  </excludes>
+                </filter>
+              </filters>
               <relocations>
                 <relocation>
                   <pattern>com.beust.</pattern>
                   <shadedPattern>com.uber.hoodie.com.beust.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>io.netty.</pattern>
+                  <shadedPattern>com.uber.hoodie.io.netty.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>javax.servlet.</pattern>
+                  <shadedPattern>com.uber.hoodie.javax.servlet.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>javax.ws.rs.</pattern>
+                  <shadedPattern>com.uber.hoodie.javax.ws.rs.</shadedPattern>
+                </relocation>
+                <!--
+                <relocation>
+                  <pattern>parquet.io.</pattern>
+                  <shadedPattern>com.uber.hoodie.parquet.io.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.apache.parquet.</pattern>
+                  <shadedPattern>com.uber.hoodie.org.apache.parquet.</shadedPattern>
+                </relocation>
+                -->
+                <relocation>
+                  <pattern>org.xerial.snappy.</pattern>
+                  <shadedPattern>com.uber.hoodie.org.xerial.snappy.</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.joda.</pattern>
@@ -102,8 +137,10 @@
                     <exclude>org.apache.log4j.**</exclude>
                     <exclude>org.apache.spark.**</exclude>
                     <exclude>org.apache.thrift.**</exclude>
+                    <exclude>org.apache.parquet.**</exclude>
                   </excludes>
                 </relocation>
+                <!--
                 <relocation>
                   <pattern>parquet.column</pattern>
                   <shadedPattern>com.uber.hoodie.parquet.column</shadedPattern>
@@ -120,6 +157,7 @@
                   <pattern>parquet.schema</pattern>
                   <shadedPattern>com.uber.hoodie.parquet.schema</shadedPattern>
                 </relocation>
+                -->
                 <relocation>
                   <pattern>org.apache.hive.jdbc.</pattern>
                   <shadedPattern>com.uber.hoodie.org.apache.hive.jdbc.</shadedPattern>
@@ -292,6 +330,111 @@
       <artifactId>hoodie-spark</artifactId>
       <version>${project.version}</version>
    </dependency>
+
+    <dependency>
+      <groupId>javax.ws.rs</groupId>
+      <artifactId>javax.ws.rs-api</artifactId>
+      <version>2.0.1</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-server</artifactId>
+      <version>1.9</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-core</artifactId>
+      <version>1.9</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-client</artifactId>
+      <version>1.9</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-json</artifactId>
+      <version>1.9</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-core_2.11</artifactId>
+      <version>2.1.0</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-sql_2.11</artifactId>
+      <version>2.1.0</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.databricks</groupId>
+      <artifactId>spark-avro_2.11</artifactId>
+      <version>4.0.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.twitter</groupId>
+      <artifactId>parquet-hadoop</artifactId>
+      <version>1.6.0</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.twitter</groupId>
+      <artifactId>parquet-column</artifactId>
+      <version>1.6.0</version>
+      <scope>provided</scope>
+    </dependency>
+
+      <dependency>
+          <groupId>com.twitter</groupId>
+          <artifactId>parquet-avro</artifactId>
+          <version>1.6.0</version>
+          <scope>provided</scope>
+      </dependency>
+
+      <dependency>
+          <groupId>com.twitter</groupId>
+          <artifactId>parquet-hadoop-bundle</artifactId>
+          <version>1.6.0</version>
+          <scope>provided</scope>
+      </dependency>
+
+      <dependency>
+          <groupId>com.twitter</groupId>
+          <artifactId>parquet-hive-bundle</artifactId>
+          <version>1.6.0</version>
+          <scope>provided</scope>
+      </dependency>
+
+      <dependency>
+          <groupId>org.apache.parquet</groupId>
+          <artifactId>parquet-hadoop</artifactId>
+          <version>1.8.3</version>
+          <scope>provided</scope>
+      </dependency>
+
+      <dependency>
+          <groupId>org.apache.parquet</groupId>
+          <artifactId>parquet-column</artifactId>
+          <version>1.8.3</version>
+          <scope>provided</scope>
+      </dependency>
+
   </dependencies>
 </project>
 

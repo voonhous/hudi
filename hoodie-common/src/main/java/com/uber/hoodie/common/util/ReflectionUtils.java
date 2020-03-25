@@ -37,7 +37,12 @@ public class ReflectionUtils {
         Class<?> clazz = Class.forName(clazzName);
         clazzCache.put(clazzName, clazz);
       } catch (ClassNotFoundException e) {
-        throw new HoodieException("Unable to load class", e);
+        try {
+          Class<?> clazz = Class.forName(clazzName, true, Thread.currentThread().getContextClassLoader());
+          clazzCache.put(clazzName, clazz);
+        } catch (ClassNotFoundException cnf) {
+          throw new HoodieException("Unable to load class", e);
+        }
       }
     }
     return clazzCache.get(clazzName);
