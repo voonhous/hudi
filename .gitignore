@@ -68,3 +68,8 @@ local.properties
 # Maven
 #######################################
 dependency-reduced-pom.xml
+
+#######################################
+# Build files
+#######################################
+hoodie-integ-test/compose_env
