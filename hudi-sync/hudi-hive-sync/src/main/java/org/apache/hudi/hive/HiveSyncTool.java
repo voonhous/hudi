@@ -24,7 +24,6 @@ import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.InvalidTableException;
-import org.apache.hudi.hive.util.PartitionFilterGenerator;
 import org.apache.hudi.sync.common.HoodieSyncClient;
 import org.apache.hudi.sync.common.HoodieSyncTool;
 import org.apache.hudi.sync.common.model.FieldSchema;
@@ -40,13 +39,13 @@ import org.apache.parquet.schema.MessageType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static org.apache.hudi.common.util.StringUtils.isNullOrEmpty;
 import static org.apache.hudi.common.util.StringUtils.nonEmpty;
 import static org.apache.hudi.hadoop.utils.HoodieInputFormatUtils.getInputFormatClassName;
 import static org.apache.hudi.hadoop.utils.HoodieInputFormatUtils.getOutputFormatClassName;
@@ -103,15 +102,19 @@ public class HiveSyncTool extends HoodieSyncTool implements AutoCloseable {
 
   public HiveSyncTool(Properties props, Configuration hadoopConf) {
     super(props, hadoopConf);
-    String metastoreUris = props.getProperty(METASTORE_URIS.key());
-    // Give precedence to HiveConf.ConfVars.METASTOREURIS if it is set.
-    // Else if user has provided HiveSyncConfigHolder.METASTORE_URIS, then set that in hadoop conf.
-    if (isNullOrEmpty(hadoopConf.get(HiveConf.ConfVars.METASTOREURIS.varname)) && nonEmpty(metastoreUris)) {
-      LOG.info(String.format("Setting %s = %s", HiveConf.ConfVars.METASTOREURIS.varname, metastoreUris));
-      hadoopConf.set(HiveConf.ConfVars.METASTOREURIS.varname, metastoreUris);
+    String configuredMetastoreUris = props.getProperty(METASTORE_URIS.key());
+
+    final Configuration hadoopConfForSync; // the configuration to use for this instance of the sync tool
+    if (nonEmpty(configuredMetastoreUris)) {
+      // if metastore uri is configured, we can create a new configuration with the value set
+      hadoopConfForSync = new Configuration(hadoopConf);
+      hadoopConfForSync.set(HiveConf.ConfVars.METASTOREURIS.varname, configuredMetastoreUris);
+    } else {
+      // if the user did not provide any URIs, then we can use the provided configuration
+      hadoopConfForSync = hadoopConf;
     }
-    HiveSyncConfig config = new HiveSyncConfig(props, hadoopConf);
-    this.config = config;
+
+    this.config = new HiveSyncConfig(props, hadoopConfForSync);
     this.databaseName = config.getStringOrDefault(META_SYNC_DATABASE_NAME);
     this.tableName = config.getStringOrDefault(META_SYNC_TABLE_NAME);
     initSyncClient(config);
@@ -387,10 +390,11 @@ public class HiveSyncTool extends HoodieSyncTool implements AutoCloseable {
     List<FieldSchema> partitionFields = syncClient.getMetastoreFieldSchemas(tableName)
         .stream()
         .filter(f -> partitionKeys.contains(f.getName()))
+        .sorted(Comparator.comparing(f -> partitionKeys.indexOf(f.getName())))
         .collect(Collectors.toList());
 
     return syncClient.getPartitionsByFilter(tableName,
-        PartitionFilterGenerator.generatePushDownFilter(writtenPartitions, partitionFields, config));
+        syncClient.generatePushDownFilter(writtenPartitions, partitionFields));
   }
 
   /**
@@ -402,7 +406,7 @@ public class HiveSyncTool extends HoodieSyncTool implements AutoCloseable {
    */
   private boolean syncAllPartitions(String tableName) {
     try {
-      if (config.getSplitStrings(META_SYNC_PARTITION_FIELDS).isEmpty()) {
+      if (config.shouldNotSyncPartitionMetadata() || config.getSplitStrings(META_SYNC_PARTITION_FIELDS).isEmpty()) {
         return false;
       }
 
@@ -428,7 +432,7 @@ public class HiveSyncTool extends HoodieSyncTool implements AutoCloseable {
    */
   private boolean syncPartitions(String tableName, List<String> writtenPartitionsSince, Set<String> droppedPartitions) {
     try {
-      if (writtenPartitionsSince.isEmpty() || config.getSplitStrings(META_SYNC_PARTITION_FIELDS).isEmpty()) {
+      if (config.shouldNotSyncPartitionMetadata() || writtenPartitionsSince.isEmpty() || config.getSplitStrings(META_SYNC_PARTITION_FIELDS).isEmpty()) {
         return false;
       }
 

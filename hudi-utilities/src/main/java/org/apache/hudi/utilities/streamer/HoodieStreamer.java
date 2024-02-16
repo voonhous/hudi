@@ -34,7 +34,6 @@ import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.EngineProperty;
-import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.model.WriteOperationType;
@@ -56,6 +55,7 @@ import org.apache.hudi.exception.HoodieClusteringUpdateException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieUpsertException;
+import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.hudi.hive.HiveSyncTool;
 import org.apache.hudi.utilities.HiveIncrementalPuller;
 import org.apache.hudi.utilities.IdentitySplitter;
@@ -93,6 +93,8 @@ import java.util.concurrent.Executors;
 
 import static java.lang.String.format;
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
+import static org.apache.hudi.utilities.UtilHelpers.buildProperties;
+import static org.apache.hudi.utilities.UtilHelpers.readConfig;
 
 /**
  * An Utility which can incrementally take the output from {@link HiveIncrementalPuller} and apply it to the target
@@ -128,12 +130,12 @@ public class HoodieStreamer implements Serializable {
   public static final String STREAMSYNC_POOL_NAME = "hoodiedeltasync";
 
   public HoodieStreamer(Config cfg, JavaSparkContext jssc) throws IOException {
-    this(cfg, jssc, FSUtils.getFs(cfg.targetBasePath, jssc.hadoopConfiguration()),
+    this(cfg, jssc, HadoopFSUtils.getFs(cfg.targetBasePath, jssc.hadoopConfiguration()),
         jssc.hadoopConfiguration(), Option.empty());
   }
 
   public HoodieStreamer(Config cfg, JavaSparkContext jssc, Option<TypedProperties> props) throws IOException {
-    this(cfg, jssc, FSUtils.getFs(cfg.targetBasePath, jssc.hadoopConfiguration()),
+    this(cfg, jssc, HadoopFSUtils.getFs(cfg.targetBasePath, jssc.hadoopConfiguration()),
         jssc.hadoopConfiguration(), props);
   }
 
@@ -170,7 +172,7 @@ public class HoodieStreamer implements Serializable {
     } else if (cfg.propsFilePath.equals(Config.DEFAULT_DFS_SOURCE_PROPERTIES)) {
       hoodieConfig.setAll(UtilHelpers.getConfig(cfg.configs).getProps());
     } else {
-      hoodieConfig.setAll(UtilHelpers.readConfig(hadoopConf, new Path(cfg.propsFilePath), cfg.configs).getProps());
+      hoodieConfig.setAll(readConfig(hadoopConf, new Path(cfg.propsFilePath), cfg.configs).getProps());
     }
 
     // set any configs that Deltastreamer has to override explicitly
@@ -429,6 +431,12 @@ public class HoodieStreamer implements Serializable {
           && HoodieTableType.MERGE_ON_READ.equals(HoodieTableType.valueOf(tableType));
     }
 
+    public static TypedProperties getProps(FileSystem fs, Config cfg) {
+      return cfg.propsFilePath.isEmpty()
+          ? buildProperties(cfg.configs)
+          : readConfig(fs.getConf(), new Path(cfg.propsFilePath), cfg.configs).getProps();
+    }
+
     @Override
     public boolean equals(Object o) {
       if (this == o) {
@@ -671,13 +679,9 @@ public class HoodieStreamer implements Serializable {
           // This will guarantee there is no surprise with table type
           checkArgument(tableType.equals(HoodieTableType.valueOf(cfg.tableType)), "Hoodie table is of type " + tableType + " but passed in CLI argument is " + cfg.tableType);
 
-          // Load base file format
-          // This will guarantee there is no surprise with base file type
-          String baseFileFormat = meta.getTableConfig().getBaseFileFormat().toString();
-          checkArgument(baseFileFormat.equals(cfg.baseFileFormat) || cfg.baseFileFormat == null,
-              format("Hoodie table's base file format is of type %s but passed in CLI argument is %s", baseFileFormat, cfg.baseFileFormat));
-          cfg.baseFileFormat = baseFileFormat;
-          this.cfg.baseFileFormat = baseFileFormat;
+          if (cfg.baseFileFormat == null) {
+            cfg.baseFileFormat = "PARQUET"; // default for backward compatibility
+          }
           Map<String, String> propsToValidate = new HashMap<>();
           properties.get().forEach((k, v) -> propsToValidate.put(k.toString(), v.toString()));
           HoodieWriterUtils.validateTableConfig(this.sparkSession, org.apache.hudi.HoodieConversionUtils.mapAsScalaImmutableMap(propsToValidate), meta.getTableConfig());
@@ -743,6 +747,8 @@ public class HoodieStreamer implements Serializable {
           while (!isShutdownRequested()) {
             try {
               long start = System.currentTimeMillis();
+              // Send a heartbeat metrics event to track the active ingestion job for this table.
+              streamSync.getMetrics().updateStreamerHeartbeatTimestamp(start);
               // check if deltastreamer need to update the configuration before the sync
               if (configurationHotUpdateStrategyOpt.isPresent()) {
                 Option<TypedProperties> newProps = configurationHotUpdateStrategyOpt.get().updateProperties(props);

@@ -159,6 +159,13 @@ public class OptionsResolver {
   }
 
   /**
+   * Returns whether the table index is simple bucket index.
+   */
+  public static boolean isSimpleBucketIndexType(Configuration conf) {
+    return isBucketIndexType(conf) && getBucketEngineType(conf).equals(HoodieIndex.BucketIndexEngineType.SIMPLE);
+  }
+
+  /**
    * Returns the default plan strategy class.
    */
   public static String getDefaultPlanStrategyClassName(Configuration conf) {
@@ -266,6 +273,13 @@ public class OptionsResolver {
   }
 
   /**
+   * Returns the read commits limit or -1 if not specified.
+   */
+  public static int getReadCommitsLimit(Configuration conf) {
+    return conf.getInteger(FlinkOptions.READ_COMMITS_LIMIT, -1);
+  }
+
+  /**
    * Returns the supplemental logging mode.
    */
   public static HoodieCDCSupplementalLoggingMode getCDCSupplementalLoggingMode(Configuration conf) {
@@ -299,15 +313,14 @@ public class OptionsResolver {
    * Returns whether the writer txn should be guarded by lock.
    */
   public static boolean isLockRequired(Configuration conf) {
-    return conf.getBoolean(FlinkOptions.METADATA_ENABLED) || isOptimisticConcurrencyControl(conf);
+    return conf.getBoolean(FlinkOptions.METADATA_ENABLED) || isMultiWriter(conf);
   }
 
   /**
-   * Returns whether OCC is enabled.
+   * Returns whether multi-writer is enabled.
    */
-  public static boolean isOptimisticConcurrencyControl(Configuration conf) {
-    return conf.getString(HoodieWriteConfig.WRITE_CONCURRENCY_MODE.key(), HoodieWriteConfig.WRITE_CONCURRENCY_MODE.defaultValue())
-        .equalsIgnoreCase(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL.name());
+  public static boolean isMultiWriter(Configuration conf) {
+    return WriteConcurrencyMode.supportsMultiWriter(conf.getString(HoodieWriteConfig.WRITE_CONCURRENCY_MODE.key(), HoodieWriteConfig.WRITE_CONCURRENCY_MODE.defaultValue()));
   }
 
   /**
@@ -327,7 +340,7 @@ public class OptionsResolver {
    * Returns the index type.
    */
   public static HoodieIndex.IndexType getIndexType(Configuration conf) {
-    return HoodieIndex.IndexType.valueOf(conf.getString(FlinkOptions.INDEX_TYPE));
+    return HoodieIndex.IndexType.valueOf(conf.getString(FlinkOptions.INDEX_TYPE).toUpperCase());
   }
 
   /**
@@ -360,6 +373,13 @@ public class OptionsResolver {
     return conf.getBoolean(HoodieWriteConfig.ALLOW_EMPTY_COMMIT.key(), false);
   }
 
+  /**
+   * Returns whether this is non-blocking concurrency control.
+   */
+  public static boolean isNonBlockingConcurrencyControl(Configuration config) {
+    return WriteConcurrencyMode.isNonBlockingConcurrencyControl(config.getString(HoodieWriteConfig.WRITE_CONCURRENCY_MODE.key(), HoodieWriteConfig.WRITE_CONCURRENCY_MODE.defaultValue()));
+  }
+
   public static boolean isLazyFailedWritesCleanPolicy(Configuration conf) {
     return conf.getString(HoodieCleanConfig.FAILED_WRITES_CLEANER_POLICY.key(), HoodieCleanConfig.FAILED_WRITES_CLEANER_POLICY.defaultValue())
         .equalsIgnoreCase(HoodieFailedWritesCleaningPolicy.LAZY.name());
@@ -386,5 +406,13 @@ public class OptionsResolver {
       }
     }
     return options;
+  }
+
+  /**
+   * Whether the reader only consumes new commit instants.
+   */
+  public static boolean isOnlyConsumingNewCommits(Configuration conf) {
+    return isMorTable(conf) && conf.getBoolean(FlinkOptions.READ_STREAMING_SKIP_COMPACT) // this is only true for flink.
+        || isAppendMode(conf) && conf.getBoolean(FlinkOptions.READ_STREAMING_SKIP_CLUSTERING);
   }
 }

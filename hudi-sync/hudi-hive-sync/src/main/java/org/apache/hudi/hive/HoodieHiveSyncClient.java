@@ -34,6 +34,7 @@ import org.apache.hudi.hive.ddl.HiveQueryDDLExecutor;
 import org.apache.hudi.hive.ddl.HiveSyncMode;
 import org.apache.hudi.hive.ddl.JDBCExecutor;
 import org.apache.hudi.hive.util.IMetaStoreClientUtil;
+import org.apache.hudi.hive.util.PartitionFilterGenerator;
 import org.apache.hudi.sync.common.HoodieSyncClient;
 import org.apache.hudi.sync.common.model.FieldSchema;
 import org.apache.hudi.sync.common.model.Partition;
@@ -229,6 +230,11 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
   }
 
   @Override
+  public String generatePushDownFilter(List<String> writtenPartitions, List<FieldSchema> partitionFields) {
+    return new PartitionFilterGenerator().generatePushDownFilter(writtenPartitions, partitionFields, config);
+  }
+
+  @Override
   public void createTable(String tableName, MessageType storageSchema, String inputFormatClass,
                           String outputFormatClass, String serdeClass,
                           Map<String, String> serdeProperties, Map<String, String> tableProperties) {
@@ -356,10 +362,10 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
     HoodieTimeline activeTimeline = getActiveTimeline();
     Option<String> lastCommitSynced = activeTimeline.lastInstant().map(HoodieInstant::getTimestamp);
     Option<String> lastCommitCompletionSynced = activeTimeline
-        .getInstantsOrderedByStateTransitionTime()
+        .getInstantsOrderedByCompletionTime()
         .skip(activeTimeline.countInstants() - 1)
         .findFirst()
-        .map(i -> Option.of(i.getStateTransitionTime()))
+        .map(i -> Option.of(i.getCompletionTime()))
         .orElse(Option.empty());
     if (lastCommitSynced.isPresent()) {
       try {

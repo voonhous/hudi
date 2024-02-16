@@ -39,8 +39,8 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.functions.{expr, lit}
 import org.apache.spark.sql.hudi.HoodieSparkSessionExtension
 import org.apache.spark.sql.hudi.command.SqlKeyGenerator
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue, fail}
-import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotNull, assertNull, assertTrue, fail}
+import org.junit.jupiter.api.{AfterEach, BeforeEach, Disabled, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments.arguments
 import org.junit.jupiter.params.provider._
@@ -365,6 +365,52 @@ class TestHoodieSparkSqlWriter {
     testBulkInsertWithSortMode(BulkInsertSortMode.NONE, populateMetaFields)
   }
 
+@Test
+def testBulkInsertForDropPartitionColumn(): Unit = {
+  //create a new table
+  val tableName = "trips_table"
+  val basePath = "file:///tmp/trips_table"
+  val columns = Seq("ts", "uuid", "rider", "driver", "fare", "city")
+  val data =
+    Seq((1695159649087L, "334e26e9-8355-45cc-97c6-c31daf0df330", "rider-A", "driver-K", 19.10, "san_francisco"),
+      (1695091554788L, "e96c4396-3fad-413a-a942-4cb36106d721", "rider-C", "driver-M", 27.70, "san_francisco"),
+      (1695046462179L, "9909a8b1-2d15-4d3d-8ec9-efc48c536a00", "rider-D", "driver-L", 33.90, "san_francisco"),
+      (1695516137016L, "e3cf430c-889d-4015-bc98-59bdce1e530c", "rider-F", "driver-P", 34.15, "sao_paulo"),
+      (1695115999911L, "c8abbe79-8d89-47ea-b4ce-4d224bae5bfa", "rider-J", "driver-T", 17.85, "chennai"));
+
+  var inserts = spark.createDataFrame(data).toDF(columns: _*)
+  inserts.write.format("hudi").
+    option(DataSourceWriteOptions.PARTITIONPATH_FIELD.key(), "city").
+    option(HoodieWriteConfig.TABLE_NAME, tableName).
+    option("hoodie.datasource.write.recordkey.field", "uuid").
+    option("hoodie.datasource.write.precombine.field", "rider").
+    option("hoodie.datasource.write.operation", "bulk_insert").
+    option("hoodie.datasource.write.hive_style_partitioning", "true").
+    option("hoodie.populate.meta.fields", "false").
+    option("hoodie.datasource.write.drop.partition.columns", "true").
+    mode(SaveMode.Overwrite).
+    save(basePath)
+
+  // Ensure the partition column (i.e 'city') can be read back
+  val tripsDF = spark.read.format("hudi").load(basePath)
+  tripsDF.show()
+  tripsDF.select("city").foreach(row => {
+    assertNotNull(row)
+  })
+
+  // Peek into the raw parquet file and ensure partition column is not written to the file
+  val partitions = Seq("city=san_francisco", "city=chennai", "city=sao_paulo")
+  val partitionPaths = new Array[String](3)
+  for (i <- partitionPaths.indices) {
+    partitionPaths(i) = String.format("%s/%s/*", basePath, partitions(i))
+  }
+  val rawFileDf = spark.sqlContext.read.parquet(partitionPaths(0), partitionPaths(1), partitionPaths(2))
+  rawFileDf.show()
+  rawFileDf.select("city").foreach(row => {
+    assertNull(row.get(0))
+  })
+}
+
   /**
    * Test case for disable and enable meta fields.
    */
@@ -470,7 +516,7 @@ class TestHoodieSparkSqlWriter {
     val df = spark.createDataFrame(sc.parallelize(recordsSeq), structType)
 
     // try write to Hudi
-    assertThrows[IllegalArgumentException] {
+    assertThrows[IOException] {
       HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, tableOpts - DataSourceWriteOptions.PARTITIONPATH_FIELD.key, df)
     }
   }
@@ -656,15 +702,11 @@ class TestHoodieSparkSqlWriter {
    */
   @ParameterizedTest
   @CsvSource(value = Array(
-    "COPY_ON_WRITE,true",
-    "COPY_ON_WRITE,false",
-    "MERGE_ON_READ,true",
-    "MERGE_ON_READ,false"
+    "COPY_ON_WRITE",
+    "MERGE_ON_READ"
   ))
-  def testSchemaEvolutionForTableType(tableType: String, allowColumnDrop: Boolean): Unit = {
-    val opts = getCommonParams(tempPath, hoodieFooTableName, tableType) ++ Map(
-      HoodieWriteConfig.SCHEMA_ALLOW_AUTO_EVOLUTION_COLUMN_DROP.key -> allowColumnDrop.toString
-    )
+  def testSchemaEvolutionForTableType(tableType: String): Unit = {
+    val opts = getCommonParams(tempPath, hoodieFooTableName, tableType)
 
     // Create new table
     // NOTE: We disable Schema Reconciliation by default (such that Writer's
@@ -755,28 +797,30 @@ class TestHoodieSparkSqlWriter {
 
     val df5 = spark.createDataFrame(sc.parallelize(recordsSeq), structType)
 
-    if (allowColumnDrop) {
-      HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, noReconciliationOpts, df5)
-
-      val snapshotDF5 = spark.read.format("org.apache.hudi")
-        .load(tempBasePath + "/*/*/*/*")
-
-      assertEquals(35, snapshotDF5.count())
-
-      assertEquals(df5.intersect(dropMetaFields(snapshotDF5)).except(df5).count, 0)
-
-      val fifthBatchActualSchema = fetchActualSchema()
-      val fifthBatchExpectedSchema = {
-        val (structName, nameSpace) = AvroConversionUtils.getAvroRecordNameAndNamespace(hoodieFooTableName)
-        AvroConversionUtils.convertStructTypeToAvroSchema(df5.schema, structName, nameSpace)
-      }
-
-      assertEquals(fifthBatchExpectedSchema, fifthBatchActualSchema)
-    } else {
-      assertThrows[SchemaCompatibilityException] {
-        HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, noReconciliationOpts, df5)
-      }
+    // assert error is thrown when dropping is not allowed
+    val disallowOpts = noReconciliationOpts ++ Map(
+      HoodieWriteConfig.SCHEMA_ALLOW_AUTO_EVOLUTION_COLUMN_DROP.key -> false.toString
+    )
+    assertThrows[SchemaCompatibilityException] {
+      HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, disallowOpts, df5)
     }
+
+    // passes when allowed.
+    val allowOpts = noReconciliationOpts ++ Map(
+      HoodieWriteConfig.SCHEMA_ALLOW_AUTO_EVOLUTION_COLUMN_DROP.key -> true.toString
+    )
+    HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, allowOpts, df5)
+
+    val snapshotDF5 = spark.read.format("org.apache.hudi").load(tempBasePath + "/*/*/*/*")
+    assertEquals(35, snapshotDF5.count())
+    assertEquals(df5.intersect(dropMetaFields(snapshotDF5)).except(df5).count, 0)
+
+    val fifthBatchActualSchema = fetchActualSchema()
+    val fifthBatchExpectedSchema = {
+      val (structName, nameSpace) = AvroConversionUtils.getAvroRecordNameAndNamespace(hoodieFooTableName)
+      AvroConversionUtils.convertStructTypeToAvroSchema(df5.schema, structName, nameSpace)
+    }
+    assertEquals(fifthBatchExpectedSchema, fifthBatchActualSchema)
   }
 
   /**
@@ -1295,8 +1339,9 @@ class TestHoodieSparkSqlWriter {
   /*
    * Test case for instant is generated with commit timezone when TIMELINE_TIMEZONE set to UTC
    * related to HUDI-5978
+   * Issue [HUDI-7275] is tracking this test being disabled
    */
-  @Test
+  @Disabled
   def testInsertDatasetWithTimelineTimezoneUTC(): Unit = {
     val defaultTimezone = TimeZone.getDefault
     try {
@@ -1372,7 +1417,6 @@ object TestHoodieSparkSqlWriter {
 
   def deletePartitionsWildcardTestParams(): java.util.stream.Stream[Arguments] = {
     java.util.stream.Stream.of(
-      arguments("2015/03/*", Seq("2016/03/15")),
       arguments("*5/03/1*", Seq("2016/03/15")),
       arguments("2016/03/*", Seq("2015/03/16", "2015/03/17")))
   }

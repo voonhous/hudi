@@ -91,7 +91,6 @@ import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_PASS;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_URL;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_USER;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_USE_PRE_APACHE_INPUT_FORMAT;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_ASSUME_DATE_PARTITION;
 import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_BASE_PATH;
 import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_DATABASE_NAME;
 import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_FIELDS;
@@ -118,6 +117,7 @@ public class UtilitiesTestBase {
   protected static HoodieSparkEngineContext context;
   protected static SparkSession sparkSession;
   protected static SQLContext sqlContext;
+  protected static Configuration hadoopConf;
 
   @BeforeAll
   public static void setLogLevel() {
@@ -131,7 +131,7 @@ public class UtilitiesTestBase {
   }
 
   public static void initTestServices(boolean needsHdfs, boolean needsHive, boolean needsZookeeper) throws Exception {
-    final Configuration hadoopConf = HoodieTestUtils.getDefaultHadoopConf();
+    hadoopConf = HoodieTestUtils.getDefaultHadoopConf();
     hadoopConf.set("hive.exec.scratchdir", System.getenv("java.io.tmpdir") + "/hive");
 
     if (needsHdfs) {
@@ -163,7 +163,12 @@ public class UtilitiesTestBase {
   }
 
   @AfterAll
-  public static void cleanUpUtilitiesTestServices() {
+  public static void cleanUpUtilitiesTestServices() throws IOException {
+    if (fs != null) {
+      fs.delete(new Path(basePath), true);
+      fs.close();
+      fs = null;
+    }
     if (hdfsTestService != null) {
       hdfsTestService.stop();
       hdfsTestService = null;
@@ -196,6 +201,10 @@ public class UtilitiesTestBase {
   @BeforeEach
   public void setup() throws Exception {
     TestDataSource.initDataGen();
+    // This prevents test methods from using existing files or folders.
+    if (fs != null) {
+      fs.delete(new Path(basePath), true);
+    }
   }
 
   @AfterEach
@@ -218,7 +227,6 @@ public class UtilitiesTestBase {
     props.setProperty(META_SYNC_DATABASE_NAME.key(), "testdb1");
     props.setProperty(META_SYNC_TABLE_NAME.key(), tableName);
     props.setProperty(META_SYNC_BASE_PATH.key(), basePath);
-    props.setProperty(META_SYNC_ASSUME_DATE_PARTITION.key(), "false");
     props.setProperty(HIVE_USE_PRE_APACHE_INPUT_FORMAT.key(), "false");
     props.setProperty(META_SYNC_PARTITION_FIELDS.key(), "datestr");
     return new HiveSyncConfig(props);
@@ -443,6 +451,15 @@ public class UtilitiesTestBase {
         int key = i % partitions;
         String value = Helpers.toJsonString(records.get(i));
         data[i] = new Tuple2<>(Long.toString(key), value);
+      }
+      return data;
+    }
+
+    public static Tuple2<String, String>[] jsonifyRecordsByPartitionsWithNullKafkaKey(List<HoodieRecord> records, int partitions) {
+      Tuple2<String, String>[] data = new Tuple2[records.size()];
+      for (int i = 0; i < records.size(); i++) {
+        String value = Helpers.toJsonString(records.get(i));
+        data[i] = new Tuple2<>(null, value);
       }
       return data;
     }

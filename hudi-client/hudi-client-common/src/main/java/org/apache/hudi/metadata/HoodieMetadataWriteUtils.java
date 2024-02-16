@@ -38,6 +38,7 @@ import org.apache.hudi.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsGraphiteConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsJmxConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsPrometheusConfig;
+import org.apache.hudi.config.metrics.HoodieMetricsDatadogConfig;
 import org.apache.hudi.exception.HoodieMetadataException;
 import org.apache.hudi.table.action.compact.strategy.UnBoundedCompactionStrategy;
 
@@ -67,7 +68,6 @@ public class HoodieMetadataWriteUtils {
   // ever. Hence, we use a very large basefile size in metadata table. The actual size of the HFiles created will
   // eventually depend on the number of file groups selected for each partition (See estimateFileGroupCount function)
   private static final long MDT_MAX_HFILE_SIZE_BYTES = 10 * 1024 * 1024 * 1024L; // 10GB
-
 
   /**
    * Create a {@code HoodieWriteConfig} to use for the Metadata Table.  This is used by async
@@ -183,6 +183,22 @@ public class HoodieMetadataWriteUtils {
           builder.withProperties(prometheusConfig.getProps());
           break;
         case DATADOG:
+          HoodieMetricsDatadogConfig.Builder datadogConfig = HoodieMetricsDatadogConfig.newBuilder()
+                  .withDatadogApiKey(writeConfig.getDatadogApiKey())
+                  .withDatadogApiKeySkipValidation(writeConfig.getDatadogApiKeySkipValidation())
+                  .withDatadogPrefix(writeConfig.getDatadogMetricPrefix())
+                  .withDatadogReportPeriodSeconds(writeConfig.getDatadogReportPeriodSeconds())
+                  .withDatadogTags(String.join(",", writeConfig.getDatadogMetricTags()))
+                  .withDatadogApiTimeoutSeconds(writeConfig.getDatadogApiTimeoutSeconds());
+          if (writeConfig.getDatadogMetricHost() != null) {
+            datadogConfig = datadogConfig.withDatadogHost(writeConfig.getDatadogMetricHost());
+          }
+          if (writeConfig.getDatadogApiSite() != null) {
+            datadogConfig = datadogConfig.withDatadogApiSite(writeConfig.getDatadogApiSite().name());
+          }
+
+          builder.withProperties(datadogConfig.build().getProps());
+          break;
         case PROMETHEUS:
         case CONSOLE:
         case INMEMORY:
