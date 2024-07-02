@@ -27,11 +27,14 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.cdc.HoodieCDCSupplementalLoggingMode;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.configuration.HadoopConfigurations;
 import org.apache.hudi.source.IncrementalInputSplits;
 import org.apache.hudi.source.prune.PartitionPruners;
+import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.hudi.table.HoodieTableSource;
 import org.apache.hudi.table.format.cdc.CdcInputFormat;
 import org.apache.hudi.table.format.cow.CopyOnWriteInputFormat;
@@ -39,6 +42,7 @@ import org.apache.hudi.table.format.mor.MergeOnReadInputFormat;
 import org.apache.hudi.table.format.mor.MergeOnReadInputSplit;
 import org.apache.hudi.util.AvroSchemaConverter;
 import org.apache.hudi.util.FlinkWriteClients;
+import org.apache.hudi.util.SerializableSchema;
 import org.apache.hudi.util.StreamerUtil;
 import org.apache.hudi.utils.TestConfigurations;
 import org.apache.hudi.utils.TestData;
@@ -53,7 +57,6 @@ import org.apache.flink.table.expressions.CallExpression;
 import org.apache.flink.table.expressions.FieldReferenceExpression;
 import org.apache.flink.table.expressions.ValueLiteralExpression;
 import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -351,7 +354,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .skipCompaction(false)
         .build();
 
@@ -392,7 +395,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .partitionPruner(PartitionPruners.getInstance("par1", "par2", "par3", "par4"))
         .skipCompaction(false)
         .build();
@@ -431,7 +434,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .partitionPruner(PartitionPruners.getInstance("par1", "par2", "par3", "par4"))
         .skipCompaction(true)
         .build();
@@ -496,7 +499,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .partitionPruner(PartitionPruners.getInstance("par1", "par2", "par3", "par4"))
         .skipClustering(true)
         .build();
@@ -584,7 +587,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .build();
 
     // timeline: c1, c2.inflight, c3.inflight, c4
@@ -653,7 +656,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .partitionPruner(PartitionPruners.getInstance("par1", "par2", "par3", "par4"))
         .build();
 
@@ -780,7 +783,8 @@ public class TestInputFormat {
       TestData.writeData(dataset, conf);
     }
 
-    HoodieTableMetaClient metaClient = StreamerUtil.createMetaClient(tempFile.getAbsolutePath(), HadoopConfigurations.getHadoopConf(conf));
+    HoodieTableMetaClient metaClient = HoodieTestUtils.createMetaClient(
+        new HadoopStorageConfiguration(HadoopConfigurations.getHadoopConf(conf)), tempFile.getAbsolutePath());
     List<String> commits = metaClient.getCommitsTimeline().filterCompletedInstants().getInstantsAsStream()
         .map(HoodieInstant::getCompletionTime).collect(Collectors.toList());
 
@@ -864,7 +868,8 @@ public class TestInputFormat {
       TestData.writeDataAsBatch(dataset, conf);
     }
 
-    HoodieTableMetaClient metaClient = StreamerUtil.createMetaClient(tempFile.getAbsolutePath(), HadoopConfigurations.getHadoopConf(conf));
+    HoodieTableMetaClient metaClient = HoodieTestUtils.createMetaClient(
+        new HadoopStorageConfiguration(HadoopConfigurations.getHadoopConf(conf)), tempFile.getAbsolutePath());
     List<String> commits = metaClient.getCommitsTimeline().filterCompletedInstants().getInstantsAsStream()
         .map(HoodieInstant::getCompletionTime).collect(Collectors.toList());
 
@@ -1014,7 +1019,8 @@ public class TestInputFormat {
         HoodieFlinkEngineContext.DEFAULT, FlinkWriteClients.getHoodieClientConfig(conf));
     writeClient.clean();
 
-    HoodieTableMetaClient metaClient = StreamerUtil.createMetaClient(tempFile.getAbsolutePath(), HadoopConfigurations.getHadoopConf(conf));
+    HoodieTableMetaClient metaClient = HoodieTestUtils.createMetaClient(
+        new HadoopStorageConfiguration(HadoopConfigurations.getHadoopConf(conf)), tempFile.getAbsolutePath());
     List<String> commits = metaClient.getCommitsTimeline().filterCompletedInstants().getInstantsAsStream()
         .map(HoodieInstant::getCompletionTime).collect(Collectors.toList());
 
@@ -1139,7 +1145,7 @@ public class TestInputFormat {
     assertTrue(firstCommit.isPresent());
     assertThat(firstCommit.get().getAction(), is(HoodieTimeline.DELTA_COMMIT_ACTION));
 
-    java.nio.file.Path metaFilePath = Paths.get(metaClient.getMetaPath(), firstCommit.get().getFileName());
+    java.nio.file.Path metaFilePath = Paths.get(metaClient.getMetaPath().toString(), firstCommit.get().getFileName());
     String newCompletionTime = TestUtils.amendCompletionTimeToLatest(metaClient, metaFilePath, firstCommit.get().getTimestamp());
 
     InputFormat<RowData, ?> inputFormat = this.tableSource.getInputFormat(true);
@@ -1148,7 +1154,7 @@ public class TestInputFormat {
     IncrementalInputSplits incrementalInputSplits = IncrementalInputSplits.builder()
         .rowType(TestConfigurations.ROW_TYPE)
         .conf(conf)
-        .path(FilePathUtils.toFlinkPath(metaClient.getBasePathV2()))
+        .path(FilePathUtils.toFlinkPath(metaClient.getBasePath()))
         .skipCompaction(skipCompaction)
         .build();
     conf.setString(FlinkOptions.READ_END_COMMIT, newCompletionTime);
@@ -1177,8 +1183,8 @@ public class TestInputFormat {
 
   private HoodieTableSource getTableSource(Configuration conf) {
     return new HoodieTableSource(
-        TestConfigurations.TABLE_SCHEMA,
-        new Path(tempFile.getAbsolutePath()),
+        SerializableSchema.create(TestConfigurations.TABLE_SCHEMA),
+        new StoragePath(tempFile.getAbsolutePath()),
         Collections.singletonList("partition"),
         "default",
         conf);

@@ -20,6 +20,7 @@ package org.apache.spark.sql.hudi.analysis
 import org.apache.hudi.common.util.ReflectionUtils
 import org.apache.hudi.common.util.ReflectionUtils.loadClass
 import org.apache.hudi.{HoodieSparkUtils, SparkAdapterSupport}
+
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable}
@@ -36,6 +37,7 @@ import org.apache.spark.sql.hudi.command.procedures.{HoodieProcedures, Procedure
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 
 import java.util
+
 import scala.collection.mutable.ListBuffer
 
 object HoodieAnalysis extends SparkAdapterSupport {
@@ -131,7 +133,7 @@ object HoodieAnalysis extends SparkAdapterSupport {
     //       Please check rule's scala-doc for more details
     rules += (_ => ResolveImplementationsEarly())
 
-    rules
+    rules.toSeq
   }
 
   def customPostHocResolutionRules: Seq[RuleBuilder] = {
@@ -150,7 +152,7 @@ object HoodieAnalysis extends SparkAdapterSupport {
       rules += spark3PostHocResolution
     }
 
-    rules
+    rules.toSeq
   }
 
   def customOptimizerRules: Seq[RuleBuilder] = {
@@ -191,7 +193,7 @@ object HoodieAnalysis extends SparkAdapterSupport {
     //          - Precedes actual [[customEarlyScanPushDownRules]] invocation
     rules += (spark => HoodiePruneFileSourcePartitions(spark))
 
-    rules
+    rules.toSeq
   }
 
   /**

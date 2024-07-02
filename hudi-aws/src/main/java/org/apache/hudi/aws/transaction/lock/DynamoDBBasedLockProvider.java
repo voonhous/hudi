@@ -19,20 +19,22 @@
 package org.apache.hudi.aws.transaction.lock;
 
 import org.apache.hudi.aws.credentials.HoodieAWSCredentialsProviderFactory;
+import org.apache.hudi.aws.utils.DynamoTableUtils;
 import org.apache.hudi.common.config.LockConfiguration;
 import org.apache.hudi.common.lock.LockProvider;
 import org.apache.hudi.common.lock.LockState;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.config.DynamoDbBasedLockConfig;
 import org.apache.hudi.exception.HoodieLockException;
+import org.apache.hudi.storage.StorageConfiguration;
 
 import com.amazonaws.services.dynamodbv2.AcquireLockOptions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBLockClient;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBLockClientOptions;
 import com.amazonaws.services.dynamodbv2.LockItem;
 import com.amazonaws.services.dynamodbv2.model.LockNotGrantedException;
-
-import org.apache.hudi.aws.utils.DynamoTableUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeDefinition;
@@ -42,12 +44,10 @@ import software.amazon.awssdk.services.dynamodb.model.KeySchemaElement;
 import software.amazon.awssdk.services.dynamodb.model.KeyType;
 import software.amazon.awssdk.services.dynamodb.model.ProvisionedThroughput;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
-import org.apache.hadoop.conf.Configuration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
+import java.io.Serializable;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,23 +59,23 @@ import java.util.concurrent.TimeUnit;
  * using DynamoDB. Users need to have access to AWS DynamoDB to be able to use this lock.
  */
 @NotThreadSafe
-public class DynamoDBBasedLockProvider implements LockProvider<LockItem> {
+public class DynamoDBBasedLockProvider implements LockProvider<LockItem>, Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(DynamoDBBasedLockProvider.class);
 
   private static final String DYNAMODB_ATTRIBUTE_NAME = "key";
 
-  private final AmazonDynamoDBLockClient client;
+  private final transient AmazonDynamoDBLockClient client;
   private final String tableName;
   private final String dynamoDBPartitionKey;
   protected final DynamoDbBasedLockConfig dynamoDBLockConfiguration;
   private volatile LockItem lock;
 
-  public DynamoDBBasedLockProvider(final LockConfiguration lockConfiguration, final Configuration conf) {
+  public DynamoDBBasedLockProvider(final LockConfiguration lockConfiguration, final StorageConfiguration<?> conf) {
     this(lockConfiguration, conf, null);
   }
 
-  public DynamoDBBasedLockProvider(final LockConfiguration lockConfiguration, final Configuration conf, DynamoDbClient dynamoDB) {
+  public DynamoDBBasedLockProvider(final LockConfiguration lockConfiguration, final StorageConfiguration<?> conf, DynamoDbClient dynamoDB) {
     this.dynamoDBLockConfiguration = DynamoDbBasedLockConfig.newBuilder()
         .fromProperties(lockConfiguration.getConfig())
         .build();

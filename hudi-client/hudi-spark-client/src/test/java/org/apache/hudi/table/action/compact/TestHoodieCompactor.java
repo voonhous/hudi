@@ -41,17 +41,16 @@ import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.exception.HoodieNotSupportedException;
-import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.index.bloom.HoodieBloomIndex;
 import org.apache.hudi.index.bloom.SparkHoodieBloomIndexHelper;
 import org.apache.hudi.metrics.HoodieMetrics;
+import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.testutils.HoodieSparkClientTestHarness;
 
 import com.codahale.metrics.Counter;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.spark.api.java.JavaRDD;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,7 +69,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestHoodieCompactor extends HoodieSparkClientTestHarness {
 
-  private Configuration hadoopConf;
   private HoodieTableMetaClient metaClient;
 
   @BeforeEach
@@ -80,9 +78,8 @@ public class TestHoodieCompactor extends HoodieSparkClientTestHarness {
 
     // Create a temp folder as the base path
     initPath();
-    hadoopConf = HoodieTestUtils.getDefaultHadoopConf();
-    fs = HadoopFSUtils.getFs(basePath, hadoopConf);
-    metaClient = HoodieTestUtils.init(hadoopConf, basePath, HoodieTableType.MERGE_ON_READ);
+    storage = HoodieStorageUtils.getStorage(basePath, storageConf);
+    metaClient = HoodieTestUtils.init(storageConf, basePath, HoodieTableType.MERGE_ON_READ);
     initTestDataGenerator();
   }
 
@@ -92,8 +89,12 @@ public class TestHoodieCompactor extends HoodieSparkClientTestHarness {
   }
 
   public HoodieWriteConfig getConfig() {
+    return getConfig(1);
+  }
+
+  public HoodieWriteConfig getConfig(int numCommitsBeforeCompaction) {
     return getConfigBuilder()
-        .withCompactionConfig(HoodieCompactionConfig.newBuilder().withMaxNumDeltaCommitsBeforeCompaction(1).build())
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder().withMaxNumDeltaCommitsBeforeCompaction(numCommitsBeforeCompaction).build())
         .withMetricsConfig(getMetricsConfig())
         .build();
   }
@@ -123,7 +124,7 @@ public class TestHoodieCompactor extends HoodieSparkClientTestHarness {
 
   @Test
   public void testCompactionOnCopyOnWriteFail() throws Exception {
-    metaClient = HoodieTestUtils.init(hadoopConf, basePath, HoodieTableType.COPY_ON_WRITE);
+    metaClient = HoodieTestUtils.init(storageConf, basePath, HoodieTableType.COPY_ON_WRITE);
     try (SparkRDDWriteClient writeClient = getHoodieWriteClient(getConfig());) {
       HoodieTable table = HoodieSparkTable.create(getConfig(), context, metaClient);
       String compactionInstantTime = writeClient.createNewInstantTime();
@@ -181,6 +182,34 @@ public class TestHoodieCompactor extends HoodieSparkClientTestHarness {
       // create one compaction instance before exist inflight instance.
       String compactionTime = "101";
       writeClient.scheduleCompactionAtInstant(compactionTime, Option.empty());
+    }
+  }
+
+  @Test
+  public void testNeedCompactionCondition() throws Exception {
+    HoodieWriteConfig config = getConfig(3);
+    try (SparkRDDWriteClient writeClient = getHoodieWriteClient(config)) {
+      // insert 100 records.
+      String newCommitTime = "100";
+      writeClient.startCommitWithTime(newCommitTime);
+
+      // commit 1
+      List<HoodieRecord> records = dataGen.generateInserts(newCommitTime, 100);
+      JavaRDD<HoodieRecord> recordsRDD = jsc.parallelize(records, 1);
+      writeClient.insert(recordsRDD, newCommitTime).collect();
+
+      // commit 2
+      updateRecords(config, "101", records);
+
+      // commit 3 (inflight)
+      newCommitTime = "102";
+      writeClient.startCommitWithTime(newCommitTime);
+      metaClient.getActiveTimeline().transitionRequestedToInflight(new HoodieInstant(State.REQUESTED,
+          HoodieTimeline.DELTA_COMMIT_ACTION, newCommitTime), Option.empty());
+
+      // check that compaction will not be scheduled
+      String compactionTime = "107";
+      assertFalse(writeClient.scheduleCompactionAtInstant(compactionTime, Option.empty()));
     }
   }
 

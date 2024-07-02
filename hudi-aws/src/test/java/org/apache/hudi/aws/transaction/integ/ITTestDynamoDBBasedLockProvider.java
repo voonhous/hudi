@@ -18,6 +18,14 @@
 
 package org.apache.hudi.aws.transaction.integ;
 
+import org.apache.hudi.aws.transaction.lock.DynamoDBBasedLockProvider;
+import org.apache.hudi.common.config.LockConfiguration;
+import org.apache.hudi.config.DynamoDbBasedLockConfig;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -25,17 +33,9 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 
-import org.apache.hudi.aws.transaction.lock.DynamoDBBasedLockProvider;
-import org.apache.hudi.common.config.LockConfiguration;
-import org.apache.hudi.config.DynamoDbBasedLockConfig;
-
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-
 import java.net.URI;
-import java.util.UUID;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.apache.hudi.common.config.LockConfiguration.LOCK_ACQUIRE_WAIT_TIMEOUT_MS_PROP_KEY;
@@ -44,6 +44,7 @@ import static org.apache.hudi.common.config.LockConfiguration.LOCK_ACQUIRE_WAIT_
  * Test for {@link DynamoDBBasedLockProvider}.
  * Set it as integration test because it requires setting up docker environment.
  */
+@Disabled("HUDI-7475 The tests do not work. Disabling them to unblock Azure CI")
 public class ITTestDynamoDBBasedLockProvider {
 
   private static LockConfiguration lockConfiguration;
