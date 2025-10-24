@@ -172,7 +172,7 @@ public class FlinkRowDataReaderContext extends HoodieReaderContext<RowData> {
   public void setSchemaHandler(FileGroupReaderSchemaHandler<RowData> schemaHandler) {
     super.setSchemaHandler(schemaHandler);
     // init ordering value converter: java -> engine type
-    List<String> orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(getMergeMode(), tableConfig);
+    List<String> orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(getMergeMode(), tableConfig.getProps(), tableConfig);
     ((FlinkRecordContext) recordContext).initOrderingValueConverter(schemaHandler.getTableSchema(), orderingFieldNames);
 
     Option<String[]> recordKeysOpt = tableConfig.getRecordKeyFields();

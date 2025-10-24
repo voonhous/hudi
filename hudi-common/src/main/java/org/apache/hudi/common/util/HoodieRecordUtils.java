@@ -19,6 +19,7 @@
 package org.apache.hudi.common.util;
 
 import org.apache.hudi.common.config.RecordMergeMode;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.EngineType;
 import org.apache.hudi.common.model.AWSDmsAvroPayload;
 import org.apache.hudi.common.model.DefaultHoodieRecordPayload;
@@ -50,6 +51,7 @@ import org.apache.avro.generic.GenericRecord;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -228,9 +230,10 @@ public class HoodieRecordUtils {
   }
 
   public static List<String> getOrderingFieldNames(RecordMergeMode mergeMode,
-                                                   HoodieTableConfig tableConfig) {
+      TypedProperties props,
+      HoodieTableConfig tableConfig) {
     return mergeMode == RecordMergeMode.COMMIT_TIME_ORDERING
         ? Collections.emptyList()
-        : tableConfig.getOrderingFields();
+        : Option.ofNullable(ConfigUtils.getOrderingFields(props)).map(Arrays::asList).orElseGet(tableConfig::getOrderingFields);
   }
 }

@@ -196,6 +196,17 @@ public class BufferedRecordMergerFactory {
       }
       return olderRecord;
     }
+
+    private boolean shouldKeepNewerRecord(BufferedRecord<T> oldRecord, BufferedRecord<T> newRecord) {
+      if (newRecord.isCommitTimeOrderingDelete() || oldRecord.isCommitTimeOrderingDelete()) {
+        // handle records coming from DELETE statements
+        // The orderingVal is constant 0 (int) and not guaranteed to match the type of the old or new record's ordering value.
+        return true;
+      }
+      Comparable newOrderingVal = recordContext.convertOrderingValueToEngineType(newRecord.getOrderingValue());
+      Comparable oldOrderingVal = recordContext.convertOrderingValueToEngineType(oldRecord.getOrderingValue());
+      return newOrderingVal.compareTo(oldOrderingVal) >= 0;
+    }
   }
 
   /**

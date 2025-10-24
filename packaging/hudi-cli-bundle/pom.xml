@@ -92,11 +92,41 @@
                   <!-- hudi -->
                   <include>org.apache.hudi:hudi-cli</include>
                   <include>org.apache.hudi:hudi-utilities_${scala.binary.version}</include>
+                  <include>org.apache.hudi:hudi-client-common</include>
+                  <include>org.apache.hudi:hudi-common</include>
+                  <include>org.apache.hudi:hudi-hadoop-common</include>
+                  <include>org.apache.hudi:hudi-spark-client</include>
+                  <include>org.apache.hudi:hudi-spark3-common</include>
+                  <include>org.apache.hudi:hudi-spark3.5.x_${scala.binary.version}</include>
+                  <include>org.apache.hudi:hudi-timeline-service</include>
+                  <include>org.apache.hudi:hudi-timeline-service</include>
+
+                  <!-- caffeine -->
+                  <include>com.github.ben-manes.caffeine:caffeine</include>
+
+                  <!-- javalin -->
+                  <include>io.javalin:javalin</include>
+                  <include>org.jetbrains.kotlin:*</include>
+
+                  <!-- jetty -->
+                  <include>org.eclipse.jetty:*</include>
+                  <include>org.eclipse.jetty.websocket:websocket-server</include>
+                  <include>org.eclipse.jetty.websocket:websocket-common</include>
+                  <include>org.eclipse.jetty.websocket:websocket-api</include>
+                  <include>org.eclipse.jetty.websocket:websocket-client</include>
+                  <include>org.eclipse.jetty.websocket:websocket-servlet</include>
 
                   <!-- Kryo -->
                   <include>com.esotericsoftware:kryo-shaded</include>
                   <include>com.esotericsoftware:minlog</include>
                   <include>org.objenesis:objenesis</include>
+
+                  <!-- jol -->
+                  <include>org.openjdk.jol:jol-core</include>
+
+                  <!-- twitter chill -->
+                  <include>com.twitter:chill-protobuf</include>
+                  <include>com.twitter:chill_${scala.binary.version}</include>
 
                   <!-- cli related dependencies -->
                   <include>com.fasterxml:classmate</include>
@@ -130,22 +160,11 @@
                 </includes>
               </artifactSet>
               <relocations>
-                <!-- Kryo -->
+                <!-- DO NOT relocate Kryo - it must remain compatible with Spark's expectations -->
+
                 <relocation>
-                  <pattern>com.esotericsoftware.kryo.</pattern>
-                  <shadedPattern>org.apache.hudi.com.esotericsoftware.kryo.</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>com.esotericsoftware.reflectasm.</pattern>
-                  <shadedPattern>org.apache.hudi.com.esotericsoftware.reflectasm.</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>com.esotericsoftware.minlog.</pattern>
-                  <shadedPattern>org.apache.hudi.com.esotericsoftware.minlog.</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>org.objenesis.</pattern>
-                  <shadedPattern>org.apache.hudi.org.objenesis.</shadedPattern>
+                  <pattern>org.openjdk.jol.</pattern>
+                  <shadedPattern>org.apache.hudi.org.openjdk.jol.</shadedPattern>
                 </relocation>
 
                 <relocation>
@@ -187,6 +206,21 @@
     <dependency>
       <groupId>org.apache.hudi</groupId>
       <artifactId>hudi-utilities_${scala.binary.version}</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hudi</groupId>
+      <artifactId>hudi-spark3-common</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hudi</groupId>
+      <artifactId>hudi-spark-common_${scala.binary.version}</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hudi</groupId>
+      <artifactId>hudi-spark3.5.x_${scala.binary.version}</artifactId>
       <version>${project.version}</version>
     </dependency>
 
@@ -307,6 +341,12 @@
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>jul-to-slf4j</artifactId>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-util</artifactId>
+      <version>${jetty.version}</version>
       <scope>compile</scope>
     </dependency>
   </dependencies>

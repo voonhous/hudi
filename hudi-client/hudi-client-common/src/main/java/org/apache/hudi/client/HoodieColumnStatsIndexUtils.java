@@ -21,6 +21,7 @@ package org.apache.hudi.client;
 
 import org.apache.hudi.common.model.ActionType;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Functions;
 import org.apache.hudi.common.util.Option;
@@ -56,7 +57,8 @@ public class HoodieColumnStatsIndexUtils {
                                        Functions.Function2<HoodieTableMetaClient, List<String>, Void> updateColStatsFunc) {
     if (config.isMetadataTableEnabled()                            // this is a data table
         && config.getMetadataConfig().isColumnStatsIndexEnabled()  // the col_stats is enabled
-        && ActionType.isCommitActionType(commitActionType)) {      // with interested actions
+        && ActionType.isCommitActionType(commitActionType)         // with interested actions
+        && commitMetadata.getOperationType() != WriteOperationType.BOOTSTRAP) {  // skip bootstrap operations
       dataTable.getMetaClient().reloadTableConfig();
       try {
         // update data table's table config for list of columns indexed.

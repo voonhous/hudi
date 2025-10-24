@@ -97,7 +97,7 @@ public abstract class BaseSparkInternalRowReaderContext extends HoodieReaderCont
   public void setSchemaHandler(FileGroupReaderSchemaHandler<InternalRow> schemaHandler) {
     super.setSchemaHandler(schemaHandler);
     // init ordering value converter: java -> engine type
-    List<String> orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(getMergeMode(), tableConfig);
+    List<String> orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(getMergeMode(), tableConfig.getProps(), tableConfig);
     Schema schema = schemaHandler.getRequiredSchema();
     ((BaseSparkInternalRecordContext) recordContext).initOrderingValueConverter(schema, orderingFieldNames);
   }

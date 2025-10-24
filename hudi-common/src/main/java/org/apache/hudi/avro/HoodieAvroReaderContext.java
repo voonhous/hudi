@@ -207,7 +207,16 @@ public class HoodieAvroReaderContext extends HoodieReaderContext<IndexedRecord> 
       Schema requiredSchema) throws IOException {
     Schema fileOutputSchema;
     Map<String, String> renamedColumns;
-    if (isLogFile) {
+    // Check if this is a bootstrap skeleton file by checking if requiredSchema contains only metadata columns
+    boolean isBootstrapSkeletonFile = getHasBootstrapBaseFile() && requiredSchema.getFields().stream()
+        .allMatch(f -> HoodieRecord.HOODIE_META_COLUMNS_WITH_OPERATION.contains(f.name()));
+
+    if (isLogFile || isBootstrapSkeletonFile) {
+      // For log files and bootstrap skeleton files, use the requiredSchema directly.
+      // For bootstrap skeleton files, the requiredSchema has already been correctly split
+      // to contain only metadata fields by the caller, so we should not call
+      // getRequiredSchemaForFileAndRenamedColumns() which would return the full table
+      // schema causing the skeleton file reader to look for data columns that don't exist.
       fileOutputSchema = requiredSchema;
       renamedColumns = Collections.emptyMap();
     } else {

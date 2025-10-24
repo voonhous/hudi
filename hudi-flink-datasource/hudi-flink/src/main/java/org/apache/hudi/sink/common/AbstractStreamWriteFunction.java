@@ -244,7 +244,7 @@ public abstract class AbstractStreamWriteFunction<I>
   /**
    * Reload the write metadata state as the current checkpoint.
    */
-  private void reloadWriteMetaState() throws Exception {
+  protected void reloadWriteMetaState() throws Exception {
     this.writeMetadataState.clear();
     WriteMetadataEvent event = WriteMetadataEvent.builder()
         .taskID(taskID)
@@ -260,7 +260,7 @@ public abstract class AbstractStreamWriteFunction<I>
   /**
    * Reload job id state as current job id.
    */
-  private void reloadJobIdState() throws Exception {
+  protected void reloadJobIdState() throws Exception {
     this.jobIdState.clear();
     this.jobIdState.add(RuntimeContextUtils.getJobId(getRuntimeContext()));
   }

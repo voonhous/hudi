@@ -549,7 +549,7 @@ public class HoodieIndexUtils {
     HoodieData<HoodieRecord<R>> existingRecords =
         getExistingRecords(globalLocations, keyGeneratorWriteConfigOpt.getLeft(), hoodieTable, readerContextFactoryForExistingRecords, writerSchemaWithMetaFields.get());
     List<String> orderingFieldNames = getOrderingFieldNames(
-        readerContext.getMergeMode(), hoodieTable.getMetaClient());
+        readerContext.getMergeMode(), hoodieTable.getConfig().getProps(), hoodieTable.getMetaClient().getTableConfig());
     BufferedRecordMerger<R> recordMerger = BufferedRecordMergerFactory.create(
         readerContext,
         readerContext.getMergeMode(),
