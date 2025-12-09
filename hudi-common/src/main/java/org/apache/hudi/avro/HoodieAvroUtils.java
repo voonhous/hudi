@@ -412,7 +412,7 @@ public class HoodieAvroUtils {
         .stream()
         .map(field -> {
           if (Objects.equals(field.name(), fieldName)) {
-            return createNewSchemaField(field.name(), AvroSchemaUtils.getNonNullTypeFromUnion(field.schema()), field.doc(), fieldDefaultValue);
+            return createNewSchemaField(field.name(), /*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(field.schema()), field.doc(), fieldDefaultValue);
           } else {
             return createNewSchemaField(field);
           }

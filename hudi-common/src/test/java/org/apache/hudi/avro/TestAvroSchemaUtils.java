@@ -184,7 +184,7 @@ public class TestAvroSchemaUtils {
   @Test
   public void testCreateNewSchemaFromFieldsWithReference_NullSchema() {
     // This test should throw an IllegalArgumentException
-    assertThrows(IllegalArgumentException.class, () -> AvroSchemaUtils.createNewSchemaFromFieldsWithReference(null, Collections.emptyList()));
+    assertThrows(IllegalArgumentException.class, () -> /*~~>*/AvroSchemaUtils.createNewSchemaFromFieldsWithReference(null, Collections.emptyList()));
   }
 
   @Test
@@ -194,7 +194,7 @@ public class TestAvroSchemaUtils {
     Schema schema = new Schema.Parser().parse(schemaStr);
 
     // Ensure getObjectProps returns null by mocking or creating a schema without props
-    Schema newSchema = AvroSchemaUtils.createNewSchemaFromFieldsWithReference(schema, Collections.emptyList());
+    Schema newSchema = /*~~>*/AvroSchemaUtils.createNewSchemaFromFieldsWithReference(schema, Collections.emptyList());
 
     // Validate the new schema
     assertEquals("TestRecord", newSchema.getName());
@@ -212,7 +212,7 @@ public class TestAvroSchemaUtils {
 
     // Create new fields to add
     Schema.Field newField = new Schema.Field("newField", Schema.create(Schema.Type.STRING), null, (Object) null);
-    Schema newSchema = AvroSchemaUtils.createNewSchemaFromFieldsWithReference(schema, Collections.singletonList(newField));
+    Schema newSchema = /*~~>*/AvroSchemaUtils.createNewSchemaFromFieldsWithReference(schema, Collections.singletonList(newField));
 
     // Validate the new schema
     assertEquals("TestRecord", newSchema.getName());
@@ -228,27 +228,27 @@ public class TestAvroSchemaUtils {
 
     // Case #1: Validate proper (nested) projected record schema
 
-    assertTrue(AvroSchemaUtils.isStrictProjectionOf(sourceSchema, sourceSchema));
-    assertTrue(AvroSchemaUtils.isStrictProjectionOf(sourceSchema, projectedNestedSchema));
+    assertTrue(/*~~>*/AvroSchemaUtils.isStrictProjectionOf(sourceSchema, sourceSchema));
+    assertTrue(/*~~>*/AvroSchemaUtils.isStrictProjectionOf(sourceSchema, projectedNestedSchema));
     // NOTE: That the opposite have to be false: if schema B is a projection of A,
     //       then A could be a projection of B iff A == B
-    assertFalse(AvroSchemaUtils.isStrictProjectionOf(projectedNestedSchema, sourceSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.isStrictProjectionOf(projectedNestedSchema, sourceSchema));
 
     // Case #2: Validate proper (nested) projected array schema
     assertTrue(
-        AvroSchemaUtils.isStrictProjectionOf(
+        /*~~>*/AvroSchemaUtils.isStrictProjectionOf(
             Schema.createArray(sourceSchema),
             Schema.createArray(projectedNestedSchema)));
 
     // Case #3: Validate proper (nested) projected map schema
     assertTrue(
-        AvroSchemaUtils.isStrictProjectionOf(
+        /*~~>*/AvroSchemaUtils.isStrictProjectionOf(
             Schema.createMap(sourceSchema),
             Schema.createMap(projectedNestedSchema)));
 
     // Case #4: Validate proper (nested) projected union schema
     assertTrue(
-        AvroSchemaUtils.isStrictProjectionOf(
+        /*~~>*/AvroSchemaUtils.isStrictProjectionOf(
             Schema.createUnion(Schema.create(Schema.Type.NULL), sourceSchema),
             Schema.createUnion(Schema.create(Schema.Type.NULL), projectedNestedSchema)));
 
@@ -257,7 +257,7 @@ public class TestAvroSchemaUtils {
     // AvroSchemaConverter: Avro Schema -> Parquet MessageType -> Avro Schema
     MessageType messageType = new AvroSchemaConverter().convert(sourceSchema);
     Schema converted = new AvroSchemaConverter().convert(messageType);
-    assertTrue(AvroSchemaUtils.isStrictProjectionOf(sourceSchema, converted));
+    assertTrue(/*~~>*/AvroSchemaUtils.isStrictProjectionOf(sourceSchema, converted));
   }
 
   @Test
@@ -268,30 +268,30 @@ public class TestAvroSchemaUtils {
     // Case #1: Validate proper (nested) projected record schema (with promotion,
     //          number field promoted from int to long)
 
-    assertTrue(AvroSchemaUtils.isCompatibleProjectionOf(sourceSchema, sourceSchema));
-    assertTrue(AvroSchemaUtils.isCompatibleProjectionOf(sourceSchema, projectedNestedSchema));
+    assertTrue(/*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(sourceSchema, sourceSchema));
+    assertTrue(/*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(sourceSchema, projectedNestedSchema));
 
     // NOTE: That [[isStrictProjectionOf]] should be false in that case
-    assertFalse(AvroSchemaUtils.isStrictProjectionOf(sourceSchema, projectedNestedSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.isStrictProjectionOf(sourceSchema, projectedNestedSchema));
     // NOTE: That the opposite have to be false: if schema B is a projection of A,
     //       then A could be a projection of B iff A == B
-    assertFalse(AvroSchemaUtils.isCompatibleProjectionOf(projectedNestedSchema, sourceSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(projectedNestedSchema, sourceSchema));
 
     // Case #2: Validate proper (nested) projected array schema (with promotion)
     assertTrue(
-        AvroSchemaUtils.isCompatibleProjectionOf(
+        /*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(
             Schema.createArray(sourceSchema),
             Schema.createArray(projectedNestedSchema)));
 
     // Case #3: Validate proper (nested) projected map schema (with promotion)
     assertTrue(
-        AvroSchemaUtils.isCompatibleProjectionOf(
+        /*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(
             Schema.createMap(sourceSchema),
             Schema.createMap(projectedNestedSchema)));
 
     // Case #4: Validate proper (nested) projected union schema (with promotion)
     assertTrue(
-        AvroSchemaUtils.isCompatibleProjectionOf(
+        /*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(
             Schema.createUnion(Schema.create(Schema.Type.NULL), sourceSchema),
             Schema.createUnion(Schema.create(Schema.Type.NULL), projectedNestedSchema)));
   }
@@ -332,13 +332,13 @@ public class TestAvroSchemaUtils {
   @ValueSource(booleans = {false, true})
   public void testIsCompatibleProjectionNotAllowed(boolean shouldValidate) {
     assertThrows(SchemaCompatibilityException.class,
-        () -> AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, SHORT_SCHEMA, shouldValidate, false, Collections.emptySet()));
+        () -> /*~~>*/AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, SHORT_SCHEMA, shouldValidate, false, Collections.emptySet()));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   public void testIsCompatibleProjectionAllowed(boolean shouldValidate) {
-    AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, SHORT_SCHEMA, shouldValidate, true, Collections.emptySet());
+    /*~~>*/AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, SHORT_SCHEMA, shouldValidate, true, Collections.emptySet());
   }
 
   @ParameterizedTest(name = "[{index}] oldSize={0}, oldPrecision={1}, oldScale={2} -> newSize={3}, newPrecision={4}, newScale={5}")
@@ -349,7 +349,7 @@ public class TestAvroSchemaUtils {
     Schema newSchema = createFixedDecimalSchema(newSize, newPrecision, newScale);
 
     assertDoesNotThrow(() ->
-            AvroSchemaUtils.checkSchemaCompatible(oldSchema, newSchema, true, false, Collections.emptySet()),
+            /*~~>*/AvroSchemaUtils.checkSchemaCompatible(oldSchema, newSchema, true, false, Collections.emptySet()),
         "Schemas should be compatible"
     );
   }
@@ -362,7 +362,7 @@ public class TestAvroSchemaUtils {
     Schema newSchema = createFixedDecimalSchema(newSize, newPrecision, newScale);
 
     assertThrows(Exception.class, () ->
-            AvroSchemaUtils.checkSchemaCompatible(oldSchema, newSchema, true, false, Collections.emptySet()),
+            /*~~>*/AvroSchemaUtils.checkSchemaCompatible(oldSchema, newSchema, true, false, Collections.emptySet()),
         "Schemas should be incompatible"
     );
   }
@@ -409,7 +409,7 @@ public class TestAvroSchemaUtils {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   public void testIsCompatiblePartitionDropCols(boolean shouldValidate) {
-    AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, SHORT_SCHEMA, shouldValidate, false, Collections.singleton("c"));
+    /*~~>*/AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, SHORT_SCHEMA, shouldValidate, false, Collections.singleton("c"));
   }
 
   private static final Schema BROKEN_SCHEMA = new Schema.Parser().parse("{\n"
@@ -433,7 +433,7 @@ public class TestAvroSchemaUtils {
   @Test
   public void  testBrokenSchema() {
     assertThrows(SchemaBackwardsCompatibilityException.class,
-        () -> AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, BROKEN_SCHEMA, true, false, Collections.emptySet()));
+        () -> /*~~>*/AvroSchemaUtils.checkSchemaCompatible(FULL_SCHEMA, BROKEN_SCHEMA, true, false, Collections.emptySet()));
   }
 
   @Test
@@ -500,35 +500,35 @@ public class TestAvroSchemaUtils {
         + "  ]\n"
         + "}\n");
 
-    Option<Schema.Field> missingField = AvroSchemaUtils.findNestedField(fullSchema, "nested_record.long");
+    Option<Schema.Field> missingField = /*~~>*/AvroSchemaUtils.findNestedField(fullSchema, "nested_record.long");
     assertTrue(missingField.isPresent());
-    assertEquals(fullSchema, AvroSchemaUtils.appendFieldsToSchemaDedupNested(missingFieldSchema, Collections.singletonList(missingField.get())));
+    assertEquals(fullSchema, /*~~>*/AvroSchemaUtils.appendFieldsToSchemaDedupNested(missingFieldSchema, Collections.singletonList(missingField.get())));
   }
 
   @Test
   public void testFindNestedFieldType() {
     Schema sourceSchema = new Schema.Parser().parse(SOURCE_SCHEMA);
-    Option<Schema.Type> field = AvroSchemaUtils.findNestedFieldType(sourceSchema, "number");
+    Option<Schema.Type> field = /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "number");
     assertTrue(field.isPresent());
     assertEquals(Schema.Type.INT, field.get());
 
-    field = AvroSchemaUtils.findNestedFieldType(sourceSchema, "nested_record.string");
+    field = /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "nested_record.string");
     assertTrue(field.isPresent());
     assertEquals(Schema.Type.STRING, field.get());
 
-    field = AvroSchemaUtils.findNestedFieldType(sourceSchema, "nested_record.long");
+    field = /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "nested_record.long");
     assertTrue(field.isPresent());
     assertEquals(Schema.Type.LONG, field.get());
 
-    field = AvroSchemaUtils.findNestedFieldType(sourceSchema, null);
+    field = /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, null);
     assertTrue(field.isEmpty());
 
-    field = AvroSchemaUtils.findNestedFieldType(sourceSchema, "");
+    field = /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "");
     assertTrue(field.isEmpty());
 
-    assertThrows(HoodieAvroSchemaException.class, () -> AvroSchemaUtils.findNestedFieldType(sourceSchema, "long"));
-    assertThrows(HoodieAvroSchemaException.class, () -> AvroSchemaUtils.findNestedFieldType(sourceSchema, "nested_record.bool"));
-    assertThrows(HoodieAvroSchemaException.class, () -> AvroSchemaUtils.findNestedFieldType(sourceSchema, "non_present_field.also_not_present"));
+    assertThrows(HoodieAvroSchemaException.class, () -> /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "long"));
+    assertThrows(HoodieAvroSchemaException.class, () -> /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "nested_record.bool"));
+    assertThrows(HoodieAvroSchemaException.class, () -> /*~~>*/AvroSchemaUtils.findNestedFieldType(sourceSchema, "non_present_field.also_not_present"));
   }
 
   private static Schema parse(String json) {
@@ -539,14 +539,14 @@ public class TestAvroSchemaUtils {
   void testAreSchemasProjectionEquivalentRecordSchemas() {
     Schema s1 = parse("{\"type\":\"record\",\"name\":\"R\",\"fields\":[{\"name\":\"f1\",\"type\":\"int\"}]}");
     Schema s2 = parse("{\"type\":\"record\",\"name\":\"R2\",\"fields\":[{\"name\":\"f1\",\"type\":\"int\"}]}");
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentDifferentFieldCountInRecords() {
     Schema s1 = parse("{\"type\":\"record\",\"name\":\"R1\",\"fields\":[{\"name\":\"a\",\"type\":\"int\"}]}");
     Schema s2 = parse("{\"type\":\"record\",\"name\":\"R2\",\"fields\":[]}");
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -556,7 +556,7 @@ public class TestAvroSchemaUtils {
     Schema s2 = parse("{\"type\":\"record\",\"name\":\"Outer2\",\"fields\":[{\"name\":\"inner\","
         + "\"type\":{\"type\":\"record\",\"name\":\"Inner2\",\"fields\":[{\"name\":\"x\",\"type\":\"string\"}]}}]}");
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -564,14 +564,14 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createArray(Schema.create(Schema.Type.STRING));
     Schema s2 = Schema.createArray(Schema.create(Schema.Type.STRING));
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentDifferentElementTypeInArray() {
     Schema s1 = Schema.createArray(Schema.create(Schema.Type.STRING));
     Schema s2 = Schema.createArray(Schema.create(Schema.Type.INT));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -579,7 +579,7 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createMap(Schema.create(Schema.Type.LONG));
     Schema s2 = Schema.createMap(Schema.create(Schema.Type.LONG));
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -587,31 +587,31 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createMap(Schema.create(Schema.Type.LONG));
     Schema s2 = Schema.createMap(Schema.create(Schema.Type.STRING));
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentNullableSchemaComparison() {
-    Schema s1 = AvroSchemaUtils.createNullableSchema(Schema.create(Schema.Type.INT));
+    Schema s1 = /*~~>*/AvroSchemaUtils.createNullableSchema(Schema.create(Schema.Type.INT));
     Schema s2 = Schema.create(Schema.Type.INT);
     s2.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentListVsString() {
     Schema stringSchema = Schema.create(Schema.Type.STRING);
     Schema listSchema = Schema.createArray(Schema.create(Schema.Type.STRING));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(listSchema, stringSchema));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(stringSchema, listSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(listSchema, stringSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(stringSchema, listSchema));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentMapVsString() {
     Schema stringSchema = Schema.create(Schema.Type.STRING);
     Schema mapSchema = Schema.createMap(Schema.create(Schema.Type.STRING));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(mapSchema, stringSchema));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(stringSchema, mapSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(mapSchema, stringSchema));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(stringSchema, mapSchema));
   }
 
   @Test
@@ -619,7 +619,7 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createFixed("F", null, null, 16);
     Schema s2 = Schema.createFixed("F", null, null, 16);
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -627,7 +627,7 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createFixed("F", null, null, 8);
     Schema s2 = Schema.createFixed("F", null, null, 4);
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -635,14 +635,14 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createEnum("E", null, null, Arrays.asList("A", "B", "C"));
     Schema s2 = Schema.createEnum("E", null, null, Arrays.asList("A", "B", "C"));
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentDifferentEnumSymbols() {
     Schema s1 = Schema.createEnum("E", null, null, Arrays.asList("X", "Y"));
     Schema s2 = Schema.createEnum("E", null, null, Arrays.asList("A", "B"));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -650,8 +650,8 @@ public class TestAvroSchemaUtils {
     Schema s1 = Schema.createEnum("E", null, null, Arrays.asList("A", "B"));
     Schema s2 = Schema.createEnum("E", null, null, Arrays.asList("A", "B", "C"));
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s2, s1));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s2, s1));
   }
 
   @Test
@@ -663,7 +663,7 @@ public class TestAvroSchemaUtils {
     LogicalTypes.decimal(12, 2).addToSchema(s2);
     s1.addProp("prop1", "value1"); // prevent Objects.equals from returning true
 
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -674,7 +674,7 @@ public class TestAvroSchemaUtils {
     Schema s2 = Schema.create(Schema.Type.BYTES);
     LogicalTypes.decimal(13, 2).addToSchema(s2);
 
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
@@ -684,20 +684,20 @@ public class TestAvroSchemaUtils {
 
     Schema s2 = Schema.create(Schema.Type.BYTES);
 
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s1, s2));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentSameReferenceSchema() {
     Schema s = Schema.create(Schema.Type.STRING);
-    assertTrue(AvroSchemaUtils.areSchemasProjectionEquivalent(s, s));
+    assertTrue(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s, s));
   }
 
   @Test
   void testAreSchemasProjectionEquivalentNullSchemaComparison() {
     Schema s = Schema.create(Schema.Type.STRING);
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(null, s));
-    assertFalse(AvroSchemaUtils.areSchemasProjectionEquivalent(s, null));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(null, s));
+    assertFalse(/*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(s, null));
   }
 
   @Test
@@ -715,7 +715,7 @@ public class TestAvroSchemaUtils {
     Schema dataSchema = parse(dataSchemaStr);
     Schema requiredSchema = parse(requiredSchemaStr);
 
-    Schema pruned = AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, Collections.emptySet());
+    Schema pruned = /*~~>*/AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, Collections.emptySet());
 
     assertEquals(1, pruned.getFields().size());
     assertEquals("name", pruned.getFields().get(0).name());
@@ -754,7 +754,7 @@ public class TestAvroSchemaUtils {
     Schema requiredSchema = parse(requiredFooStr);
 
     Schema fooFieldSchema = dataSchema.getField("foo").schema();
-    Schema pruned = AvroSchemaUtils.pruneDataSchema(fooFieldSchema, requiredSchema, Collections.emptySet());
+    Schema pruned = /*~~>*/AvroSchemaUtils.pruneDataSchema(fooFieldSchema, requiredSchema, Collections.emptySet());
 
     assertEquals(Schema.Type.UNION, pruned.getType());
 
@@ -778,7 +778,7 @@ public class TestAvroSchemaUtils {
     Schema dataSchema = parse(dataSchemaStr);
     Schema requiredSchema = parse(requiredSchemaStr);
 
-    Schema pruned = AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, Collections.emptySet());
+    Schema pruned = /*~~>*/AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, Collections.emptySet());
     Schema itemSchema = pruned.getElementType();
 
     assertEquals(1, itemSchema.getFields().size());
@@ -798,7 +798,7 @@ public class TestAvroSchemaUtils {
     Schema dataSchema = parse(dataSchemaStr);
     Schema requiredSchema = parse(requiredSchemaStr);
 
-    Schema pruned = AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, Collections.emptySet());
+    Schema pruned = /*~~>*/AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, Collections.emptySet());
     Schema valueSchema = pruned.getValueType();
 
     assertEquals(1, valueSchema.getFields().size());
@@ -821,7 +821,7 @@ public class TestAvroSchemaUtils {
 
     Set<String> mandatoryFields = Collections.singleton("missing");
 
-    Schema pruned = AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, mandatoryFields);
+    Schema pruned = /*~~>*/AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, mandatoryFields);
 
     assertEquals(2, pruned.getFields().size());
     assertNotNull(pruned.getField("missing"));
@@ -858,7 +858,7 @@ public class TestAvroSchemaUtils {
     // only apply to top-level fields
     Set<String> mandatoryFields = new HashSet<>(Arrays.asList("topLevelMissing", "nestedMissing"));
 
-    Schema pruned = AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, mandatoryFields);
+    Schema pruned = /*~~>*/AvroSchemaUtils.pruneDataSchema(dataSchema, requiredSchema, mandatoryFields);
 
     // Should have 3 top-level fields: existing, topLevelMissing, nestedRecord
     assertEquals(3, pruned.getFields().size());

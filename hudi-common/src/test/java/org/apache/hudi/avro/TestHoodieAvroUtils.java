@@ -1222,7 +1222,7 @@ public class TestHoodieAvroUtils {
     Schema expectedSchema = Schema.parse(expectedSchemaStr);
     Schema projectedSchema = HoodieAvroUtils.projectSchema(SCHEMA_WITH_NESTED_FIELD_LARGE, projectedFields);
     assertEquals(expectedSchema, projectedSchema);
-    assertTrue(AvroSchemaUtils.isSchemaCompatible(projectedSchema, expectedSchema, false));
+    assertTrue(/*~~>*/AvroSchemaUtils.isSchemaCompatible(projectedSchema, expectedSchema, false));
   }
 
   private static Stream<Arguments> recordNeedsRewriteForExtendedAvroTypePromotion() {

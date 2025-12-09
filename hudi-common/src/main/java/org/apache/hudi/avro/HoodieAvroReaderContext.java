@@ -292,7 +292,7 @@ public class HoodieAvroReaderContext extends HoodieReaderContext<IndexedRecord> 
       this.skeletonRequiredSchema = skeletonRequiredSchema;
       this.dataFileIterator = dataFileIterator;
       this.dataRequiredSchema = dataRequiredSchema;
-      this.mergedSchema = AvroSchemaUtils.mergeSchemas(skeletonRequiredSchema, dataRequiredSchema);
+      this.mergedSchema = /*~~>*/AvroSchemaUtils.mergeSchemas(skeletonRequiredSchema, dataRequiredSchema);
       this.skeletonFields = skeletonRequiredSchema.getFields().size();
       this.partitionFieldPositions = partitionFieldAndValues.stream().map(Pair::getLeft).map(field -> mergedSchema.getField(field).pos()).mapToInt(Integer::intValue).toArray();
       this.partitionValues = partitionFieldAndValues.stream().map(Pair::getValue).toArray();

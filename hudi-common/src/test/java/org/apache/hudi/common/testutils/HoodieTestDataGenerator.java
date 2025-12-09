@@ -1712,7 +1712,7 @@ Generate random record using TRIP_ENCODED_DECIMAL_SCHEMA
     for (int i = 0; i < baseFields.size(); i++) {
       if (baseFields.get(i) == Schema.Type.BOOLEAN) {
         // boolean fields are added fields
-        finalFields.add(new Schema.Field(fieldPrefix + i, AvroSchemaUtils.createNullableSchema(Schema.Type.BOOLEAN), "", null));
+        finalFields.add(new Schema.Field(fieldPrefix + i, /*~~>*/AvroSchemaUtils.createNullableSchema(Schema.Type.BOOLEAN), "", null));
       } else {
         finalFields.add(new Schema.Field(fieldPrefix + i, Schema.create(baseFields.get(i)), "", null));
       }
@@ -1742,7 +1742,7 @@ Generate random record using TRIP_ENCODED_DECIMAL_SCHEMA
             rec.put(field.name(), ByteBuffer.wrap(getUTF8Bytes(genPseudoRandomUUID(rand).toString())));
             break;
           case UNION:
-            if (!AvroSchemaUtils.getNonNullTypeFromUnion(field.schema()).getType().equals(Schema.Type.BOOLEAN)) {
+            if (!/*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(field.schema()).getType().equals(Schema.Type.BOOLEAN)) {
               throw new IllegalStateException("Union should only be boolean");
             }
             rec.put(field.name(), rand.nextBoolean());

@@ -237,8 +237,8 @@ public class HiveTypeUtils {
                                                  Set<Schema> seenSchemas) throws AvroSerdeException {
     // Avro requires NULLable types to be defined as unions of some type T
     // and NULL.  This is annoying and we're going to hide it from the user.
-    if (AvroSchemaUtils.isNullable(schema)) {
-      return generateTypeInfo(AvroSchemaUtils.getNonNullTypeFromUnion(schema), seenSchemas);
+    if (/*~~>*/AvroSchemaUtils.isNullable(schema)) {
+      return generateTypeInfo(/*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(schema), seenSchemas);
     }
 
     Schema.Type type = schema.getType();

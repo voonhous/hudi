@@ -83,7 +83,7 @@ public class HiveAvroSerializer {
   private static final Logger LOG = LoggerFactory.getLogger(HiveAvroSerializer.class);
 
   public HiveAvroSerializer(Schema schema) {
-    schema = AvroSchemaUtils.getNonNullTypeFromUnion(schema);
+    schema = /*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(schema);
     if (schema.getType() != Schema.Type.RECORD) {
       throw new IllegalArgumentException("Expected record schema, but got: " + schema);
     }

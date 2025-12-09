@@ -596,7 +596,7 @@ public class TestHoodieSchemaCompatibility {
     Schema evolvedAvro = evolvedSchema.toAvroSchema();
 
     // Results should be consistent
-    boolean avroCompatible = AvroSchemaUtils.isSchemaCompatible(baseAvro, evolvedAvro);
+    boolean avroCompatible = /*~~>*/AvroSchemaUtils.isSchemaCompatible(baseAvro, evolvedAvro);
     boolean hoodieCompatible = HoodieSchemaCompatibility.isSchemaCompatible(baseSchema, evolvedSchema);
 
     assertEquals(avroCompatible, hoodieCompatible);

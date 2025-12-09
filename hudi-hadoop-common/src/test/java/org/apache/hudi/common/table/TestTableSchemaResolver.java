@@ -101,7 +101,7 @@ class TestTableSchemaResolver {
     assertNotEquals(originSchema, s4);
     assertTrue(s4.getFields().stream().anyMatch(f -> f.name().equals("user_partition")));
     Schema.Field f = s4.getField("user_partition");
-    assertEquals(f.schema(), AvroSchemaUtils.createNullableSchema(Schema.Type.STRING));
+    assertEquals(f.schema(), /*~~>*/AvroSchemaUtils.createNullableSchema(Schema.Type.STRING));
 
     // case5: user_partition is in originSchema, but partition_path is in originSchema
     String[] pts4 = {"user_partition", "partition_path"};

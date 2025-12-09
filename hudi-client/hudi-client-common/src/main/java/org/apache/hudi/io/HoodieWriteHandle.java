@@ -366,7 +366,7 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
       Object eventTime = record.getColumnValueAsJava(schema.toAvroSchema(), eventTimeFieldName, props);
       if (eventTime != null) {
         // Append event_time.
-        Option<Schema.Field> field = AvroSchemaUtils.findNestedField(schema.toAvroSchema(), eventTimeFieldName);
+        Option<Schema.Field> field = /*~~>*/AvroSchemaUtils.findNestedField(schema.toAvroSchema(), eventTimeFieldName);
         // Field should definitely exist.
         eventTime = record.convertColumnValueForLogicalType(
             field.get().schema(), eventTime, keepConsistentLogicalTimestamp);

@@ -53,8 +53,8 @@ class TestHoodieAvroReaderContext {
   private static final HoodieSchema LIMITED_SKELETON_SCHEMA = getLimitedSkeletonSchema();
   private static final HoodieSchema BASE_SCHEMA = getBaseSchema();
   private static final HoodieSchema LIMITED_BASE_SCHEMA = getLimitedBaseSchema();
-  private static final Schema FULL_MERGED_SCHEMA = AvroSchemaUtils.mergeSchemas(SKELETON_SCHEMA.toAvroSchema(), BASE_SCHEMA.toAvroSchema());
-  private static final Schema LIMTIED_MERGED_SCHEMA = AvroSchemaUtils.mergeSchemas(LIMITED_SKELETON_SCHEMA.toAvroSchema(), LIMITED_BASE_SCHEMA.toAvroSchema());
+  private static final Schema FULL_MERGED_SCHEMA = /*~~>*/AvroSchemaUtils.mergeSchemas(SKELETON_SCHEMA.toAvroSchema(), BASE_SCHEMA.toAvroSchema());
+  private static final Schema LIMTIED_MERGED_SCHEMA = /*~~>*/AvroSchemaUtils.mergeSchemas(LIMITED_SKELETON_SCHEMA.toAvroSchema(), LIMITED_BASE_SCHEMA.toAvroSchema());
 
   private final StorageConfiguration<?> storageConfig = mock(StorageConfiguration.class);
   private final HoodieTableConfig tableConfig = mock(HoodieTableConfig.class);

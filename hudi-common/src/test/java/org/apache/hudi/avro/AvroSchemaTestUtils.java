@@ -58,7 +58,7 @@ public class AvroSchemaTestUtils {
   }
 
   public static Schema.Field createNullablePrimitiveField(String name, Schema.Type type) {
-    return new Schema.Field(name, AvroSchemaUtils.createNullableSchema(type), null, JsonProperties.NULL_VALUE);
+    return new Schema.Field(name, /*~~>*/AvroSchemaUtils.createNullableSchema(type), null, JsonProperties.NULL_VALUE);
   }
 
   public static Schema createRecord(String name, Schema.Field... fields) {
@@ -66,6 +66,6 @@ public class AvroSchemaTestUtils {
   }
 
   public static Schema createNullableRecord(String name, Schema.Field... fields) {
-    return AvroSchemaUtils.createNullableSchema(Schema.createRecord(name, null, null, false, Arrays.asList(fields)));
+    return /*~~>*/AvroSchemaUtils.createNullableSchema(Schema.createRecord(name, null, null, false, Arrays.asList(fields)));
   }
 }

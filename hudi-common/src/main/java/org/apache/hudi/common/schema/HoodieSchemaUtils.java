@@ -135,7 +135,7 @@ public final class HoodieSchemaUtils {
     ValidationUtils.checkArgument(targetSchema != null, "Target schema cannot be null");
 
     // Delegate to AvroSchemaUtils
-    Schema mergedAvro = AvroSchemaUtils.mergeSchemas(
+    Schema mergedAvro = /*~~>*/AvroSchemaUtils.mergeSchemas(
         sourceSchema.toAvroSchema(),
         targetSchema.toAvroSchema());
     return HoodieSchema.fromAvroSchema(mergedAvro);
@@ -153,7 +153,7 @@ public final class HoodieSchemaUtils {
     ValidationUtils.checkArgument(schema != null, "Schema cannot be null");
 
     // Delegate to AvroSchemaUtils
-    Schema nullableAvro = AvroSchemaUtils.createNullableSchema(schema.toAvroSchema());
+    Schema nullableAvro = /*~~>*/AvroSchemaUtils.createNullableSchema(schema.toAvroSchema());
     return HoodieSchema.fromAvroSchema(nullableAvro);
   }
 
@@ -216,7 +216,7 @@ public final class HoodieSchemaUtils {
     ValidationUtils.checkArgument(unionSchema != null, "Union schema cannot be null");
 
     // Delegate to AvroSchemaUtils
-    Schema nonNullAvro = AvroSchemaUtils.getNonNullTypeFromUnion(unionSchema.toAvroSchema());
+    Schema nonNullAvro = /*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(unionSchema.toAvroSchema());
     return HoodieSchema.fromAvroSchema(nonNullAvro);
   }
 
@@ -409,7 +409,7 @@ public final class HoodieSchemaUtils {
   /**
    * Prunes the data schema to only include fields that are required by the required schema,
    * plus any mandatory fields specified.
-   * This is equivalent to {@link AvroSchemaUtils#pruneDataSchema(Schema, Schema, Set)} but operates on HoodieSchema.
+   * This is equivalent to {@link ~~>AvroSchemaUtils#pruneDataSchema(Schema, Schema, Set)} but operates on HoodieSchema.
    *
    * @param dataSchema      the full data schema
    * @param requiredSchema  the schema containing required fields
@@ -425,7 +425,7 @@ public final class HoodieSchemaUtils {
     Set<String> mandatorySet = mandatoryFields != null ? mandatoryFields : Collections.emptySet();
 
     // Delegate to AvroSchemaUtils
-    Schema prunedAvro = AvroSchemaUtils.pruneDataSchema(
+    Schema prunedAvro = /*~~>*/AvroSchemaUtils.pruneDataSchema(
         dataSchema.toAvroSchema(),
         requiredSchema.toAvroSchema(),
         mandatorySet);
@@ -435,7 +435,7 @@ public final class HoodieSchemaUtils {
   /**
    * Checks if two schemas are projection equivalent (i.e., they have the same fields and types
    * for projection purposes, ignoring certain metadata differences).
-   * This is equivalent to {@link AvroSchemaUtils#areSchemasProjectionEquivalent(Schema, Schema)} but operates on HoodieSchema.
+   * This is equivalent to {@link ~~>AvroSchemaUtils#areSchemasProjectionEquivalent(Schema, Schema)} but operates on HoodieSchema.
    *
    * @param schema1 the first schema
    * @param schema2 the second schema
@@ -445,27 +445,27 @@ public final class HoodieSchemaUtils {
    */
   public static boolean areSchemasProjectionEquivalent(HoodieSchema schema1, HoodieSchema schema2) {
     // Delegate to AvroSchemaUtils
-    return AvroSchemaUtils.areSchemasProjectionEquivalent(schema1 == null ? null : schema1.toAvroSchema(), schema2 == null ? null : schema2.toAvroSchema());
+    return /*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(schema1 == null ? null : schema1.toAvroSchema(), schema2 == null ? null : schema2.toAvroSchema());
   }
 
   /**
    * Adds newFields to the schema. Will add nested fields without duplicating the field
    * For example if your schema is "a.b.{c,e}" and newfields contains "a.{b.{d,e},x.y}",
    * It will stitch them together to be "a.{b.{c,d,e},x.y}
-   * This is equivalent to {@link AvroSchemaUtils#appendFieldsToSchemaDedupNested(Schema, List)} but operates on HoodieSchema.
+   * This is equivalent to {@link ~~>AvroSchemaUtils#appendFieldsToSchemaDedupNested(Schema, List)} but operates on HoodieSchema.
    *
    * @param schema    the original schema
    * @param newFields list of new fields to add
    * @return the updated schema with new fields added
    */
   public static HoodieSchema appendFieldsToSchemaDedupNested(HoodieSchema schema, List<HoodieSchemaField> newFields) {
-    return HoodieSchema.fromAvroSchema(AvroSchemaUtils.appendFieldsToSchemaDedupNested(schema.toAvroSchema(),
+    return HoodieSchema.fromAvroSchema(/*~~>*/AvroSchemaUtils.appendFieldsToSchemaDedupNested(schema.toAvroSchema(),
         newFields.stream().map(HoodieSchemaField::getAvroField).collect(Collectors.toList())));
   }
 
   /**
    * Create a new schema but maintain all meta info from the old schema.
-   * This is equivalent to {@link AvroSchemaUtils#createNewSchemaFromFieldsWithReference(Schema, List)} but operates on HoodieSchema.
+   * This is equivalent to {@link ~~>AvroSchemaUtils#createNewSchemaFromFieldsWithReference(Schema, List)} but operates on HoodieSchema.
    *
    * @param schema schema to get the meta info from
    * @param fields list of fields in order that will be in the new schema
@@ -476,7 +476,7 @@ public final class HoodieSchemaUtils {
     if (schema == null) {
       throw new IllegalArgumentException("Schema must not be null");
     }
-    return HoodieSchema.fromAvroSchema(AvroSchemaUtils.createNewSchemaFromFieldsWithReference(
+    return HoodieSchema.fromAvroSchema(/*~~>*/AvroSchemaUtils.createNewSchemaFromFieldsWithReference(
         schema.toAvroSchema(),
         fields.stream().map(HoodieSchemaField::getAvroField).collect(Collectors.toList())
     ));

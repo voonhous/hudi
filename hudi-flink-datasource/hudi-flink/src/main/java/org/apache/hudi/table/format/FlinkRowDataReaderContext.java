@@ -209,7 +209,7 @@ public class FlinkRowDataReaderContext extends HoodieReaderContext<RowData> {
   }
 
   private List<ExpressionPredicates.Predicate> getSafePredicates(Schema requiredSchema) {
-    boolean hasRowIndexField = AvroSchemaUtils.containsFieldInSchema(requiredSchema, ROW_INDEX_TEMPORARY_COLUMN_NAME);
+    boolean hasRowIndexField = /*~~>*/AvroSchemaUtils.containsFieldInSchema(requiredSchema, ROW_INDEX_TEMPORARY_COLUMN_NAME);
     if (!getHasLogFiles() && !getNeedsBootstrapMerge()) {
       return allPredicates;
     } else if (!getHasLogFiles() && hasRowIndexField) {

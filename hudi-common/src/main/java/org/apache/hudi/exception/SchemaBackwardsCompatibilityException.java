@@ -37,7 +37,7 @@ public class SchemaBackwardsCompatibilityException extends SchemaCompatibilityEx
   }
 
   private static String constructExceptionMessage(AvroSchemaCompatibility.SchemaPairCompatibility compatibility, Schema writerSchema, Schema tableSchema) {
-    return AvroSchemaUtils.createSchemaErrorString("Schema validation backwards compatibility check failed with the following issues: {"
+    return /*~~>*/AvroSchemaUtils.createSchemaErrorString("Schema validation backwards compatibility check failed with the following issues: {"
         + compatibility.getResult().getIncompatibilities().stream()
             .map(incompatibility -> incompatibility.getType().name() + ": " + incompatibility.getMessage())
             .collect(Collectors.joining(", ")) + "}", writerSchema, tableSchema);

@@ -44,8 +44,8 @@ public class AvroSchemaRepair {
    */
   private static Schema repairAvroSchema(Schema fileSchema, Schema tableSchema) {
     // Always resolve nullable schemas first (returns unchanged if not a union)
-    Schema nonNullFileSchema = AvroSchemaUtils.getNonNullTypeFromUnion(fileSchema);
-    Schema nonNullTableSchema = AvroSchemaUtils.getNonNullTypeFromUnion(tableSchema);
+    Schema nonNullFileSchema = /*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(fileSchema);
+    Schema nonNullTableSchema = /*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(tableSchema);
 
     // Perform repair on the non-null types
     Schema nonNullRepairedSchema = repairAvroSchemaNonNull(nonNullFileSchema, nonNullTableSchema);
@@ -57,7 +57,7 @@ public class AvroSchemaRepair {
 
     // If the original was a union, wrap the repaired schema back in a nullable union
     if (fileSchema.getType() == Schema.Type.UNION) {
-      return AvroSchemaUtils.createNullableSchema(nonNullRepairedSchema);
+      return /*~~>*/AvroSchemaUtils.createNullableSchema(nonNullRepairedSchema);
     }
 
     return nonNullRepairedSchema;
@@ -228,7 +228,7 @@ public class AvroSchemaRepair {
         return hasTimestampMillisField(tableSchema.getValueType());
 
       case UNION:
-        return hasTimestampMillisField(AvroSchemaUtils.getNonNullTypeFromUnion(tableSchema));
+        return hasTimestampMillisField(/*~~>*/AvroSchemaUtils.getNonNullTypeFromUnion(tableSchema));
 
       default:
         return tableSchema.getType() == Schema.Type.LONG

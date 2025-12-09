@@ -83,7 +83,7 @@ public final class HoodieSchemaCompatibility {
     ValidationUtils.checkArgument(writerSchema != null, "Writer schema cannot be null");
 
     // Delegate to AvroSchemaUtils for the actual compatibility check
-    AvroSchemaUtils.checkSchemaCompatible(
+    /*~~>*/AvroSchemaUtils.checkSchemaCompatible(
         tableSchema.toAvroSchema(),
         writerSchema.toAvroSchema(),
         shouldValidate,
@@ -105,7 +105,7 @@ public final class HoodieSchemaCompatibility {
     ValidationUtils.checkArgument(tableSchema != null, "Table schema cannot be null");
 
     // Delegate to AvroSchemaUtils for evolution validation
-    AvroSchemaUtils.checkValidEvolution(incomingSchema.toAvroSchema(), tableSchema.toAvroSchema());
+    /*~~>*/AvroSchemaUtils.checkValidEvolution(incomingSchema.toAvroSchema(), tableSchema.toAvroSchema());
   }
 
   /**
@@ -137,7 +137,7 @@ public final class HoodieSchemaCompatibility {
     ValidationUtils.checkArgument(writerSchema != null, "Writer schema cannot be null");
 
     // Use HoodieSchemaUtils delegation for consistency
-    return AvroSchemaUtils.isSchemaCompatible(readerSchema.toAvroSchema(), writerSchema.toAvroSchema(), allowProjection);
+    return /*~~>*/AvroSchemaUtils.isSchemaCompatible(readerSchema.toAvroSchema(), writerSchema.toAvroSchema(), allowProjection);
   }
 
   /**
@@ -151,7 +151,7 @@ public final class HoodieSchemaCompatibility {
     if (sourceSchema == null || targetSchema == null) {
       return false;
     }
-    return AvroSchemaUtils.isCompatibleProjectionOf(sourceSchema.getAvroSchema(), targetSchema.getAvroSchema());
+    return /*~~>*/AvroSchemaUtils.isCompatibleProjectionOf(sourceSchema.getAvroSchema(), targetSchema.getAvroSchema());
   }
 
   /**
@@ -175,7 +175,7 @@ public final class HoodieSchemaCompatibility {
     if (sourceSchema == null || targetSchema == null) {
       return false;
     }
-    return AvroSchemaUtils.isStrictProjectionOf(sourceSchema.getAvroSchema(), targetSchema.getAvroSchema());
+    return /*~~>*/AvroSchemaUtils.isStrictProjectionOf(sourceSchema.getAvroSchema(), targetSchema.getAvroSchema());
   }
 
   /**
@@ -189,6 +189,6 @@ public final class HoodieSchemaCompatibility {
     if (schema1 == null || schema2 == null) {
       return false;
     }
-    return AvroSchemaUtils.areSchemasProjectionEquivalent(schema1.toAvroSchema(), schema2.toAvroSchema());
+    return /*~~>*/AvroSchemaUtils.areSchemasProjectionEquivalent(schema1.toAvroSchema(), schema2.toAvroSchema());
   }
 }

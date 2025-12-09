@@ -34,7 +34,7 @@ public class MissingSchemaFieldException extends SchemaCompatibilityException {
   }
 
   private static String constructExceptionMessage(List<String> missingFields, Schema writerSchema, Schema tableSchema) {
-    return AvroSchemaUtils.createSchemaErrorString(
+    return /*~~>*/AvroSchemaUtils.createSchemaErrorString(
         "Schema validation failed due to missing field. Fields missing from incoming schema: {"
         + String.join(", ", missingFields) + "}", writerSchema, tableSchema);
   }

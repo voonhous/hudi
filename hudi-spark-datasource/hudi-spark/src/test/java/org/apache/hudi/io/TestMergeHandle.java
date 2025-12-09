@@ -442,7 +442,7 @@ public class TestMergeHandle extends BaseTestHandle {
       Object eventTimeValue = record.getColumnValueAsJava(schema, eventTimeFieldName, props);
       if (eventTimeValue != null) {
         // Append event_time.
-        Option<Schema.Field> field = AvroSchemaUtils.findNestedField(schema, eventTimeFieldName);
+        Option<Schema.Field> field = /*~~>*/AvroSchemaUtils.findNestedField(schema, eventTimeFieldName);
         // Field should definitely exist.
         eventTimeValue = record.convertColumnValueForLogicalType(
             field.get().schema(), eventTimeValue, keepConsistentLogicalTimestamp);

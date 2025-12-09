@@ -498,7 +498,7 @@ public class HoodieHiveCatalog extends AbstractCatalog {
     Configuration flinkConf = Configuration.fromMap(catalogTable.getOptions());
     final String avroSchema = AvroSchemaConverter.convertToSchema(
         DataTypeUtils.toRowType(catalogTable.getUnresolvedSchema()),
-        AvroSchemaUtils.getAvroRecordQualifiedName(tablePath.getObjectName())).toString();
+        /*~~>*/AvroSchemaUtils.getAvroRecordQualifiedName(tablePath.getObjectName())).toString();
     flinkConf.set(FlinkOptions.SOURCE_AVRO_SCHEMA, avroSchema);
 
     // stores two copies of options:

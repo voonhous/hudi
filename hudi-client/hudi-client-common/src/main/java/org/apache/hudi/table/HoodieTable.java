@@ -954,7 +954,7 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
       }
       Schema writerSchema = HoodieAvroUtils.createHoodieWriteSchema(config.getSchema());
       Schema tableSchema = HoodieAvroUtils.createHoodieWriteSchema(existingTableSchema.get());
-      AvroSchemaUtils.checkSchemaCompatible(tableSchema, writerSchema, shouldValidate, allowProjection, getDropPartitionColNames());
+      /*~~>*/AvroSchemaUtils.checkSchemaCompatible(tableSchema, writerSchema, shouldValidate, allowProjection, getDropPartitionColNames());
       
       // Check secondary index column compatibility
       Option<HoodieIndexMetadata> indexMetadata = metaClient.getIndexMetadata();

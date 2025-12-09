@@ -319,7 +319,7 @@ public class HoodieCatalog extends AbstractCatalog {
     }
     final String avroSchema = AvroSchemaConverter.convertToSchema(
         resolvedSchema.toPhysicalRowDataType().getLogicalType(),
-        AvroSchemaUtils.getAvroRecordQualifiedName(tablePath.getObjectName())).toString();
+        /*~~>*/AvroSchemaUtils.getAvroRecordQualifiedName(tablePath.getObjectName())).toString();
     conf.set(FlinkOptions.SOURCE_AVRO_SCHEMA, avroSchema);
 
     // stores two copies of options:
@@ -619,7 +619,7 @@ public class HoodieCatalog extends AbstractCatalog {
     ResolvedCatalogTable resolvedTable =  (ResolvedCatalogTable) newCatalogTable;
     final String avroSchema = AvroSchemaConverter.convertToSchema(
         resolvedTable.getResolvedSchema().toPhysicalRowDataType().getLogicalType(),
-        AvroSchemaUtils.getAvroRecordQualifiedName(tablePath.getObjectName())).toString();
+        /*~~>*/AvroSchemaUtils.getAvroRecordQualifiedName(tablePath.getObjectName())).toString();
     options.put(FlinkOptions.SOURCE_AVRO_SCHEMA.key(), avroSchema);
     java.util.Optional<UniqueConstraint> pkConstraintOpt = resolvedTable.getResolvedSchema().getPrimaryKey();
     if (pkConstraintOpt.isPresent()) {
