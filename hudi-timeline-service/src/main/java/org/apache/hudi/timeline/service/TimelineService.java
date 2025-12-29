@@ -24,7 +24,11 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.table.view.FileSystemViewStorageType;
+import org.apache.hudi.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
+import org.apache.hudi.metrics.Metrics;
+import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.storage.StorageConfiguration;
 
 import com.beust.jcommander.JCommander;
@@ -39,6 +43,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+import static org.apache.hudi.config.metrics.HoodieMetricsConfig.METRICS_REPORTER_TYPE_VALUE;
+import static org.apache.hudi.config.metrics.HoodieMetricsConfig.TURN_METRICS_ON;
 
 /**
  * A standalone timeline service exposing File-System View interfaces to clients.
@@ -48,6 +59,7 @@ public class TimelineService {
   private static final Logger LOG = LoggerFactory.getLogger(TimelineService.class);
   private static final int START_SERVICE_MAX_RETRIES = 16;
   private static final int DEFAULT_NUM_THREADS = 250;
+  private static final long METRICS_FLUSH_INTERVAL_SECONDS = 30;
 
   private int serverPort;
   private final Config timelineServerConf;
@@ -55,6 +67,8 @@ public class TimelineService {
   private transient Javalin app = null;
   private transient FileSystemViewManager fsViewsManager;
   private transient RequestHandler requestHandler;
+  private transient Metrics metrics;
+  private transient ScheduledExecutorService metricsScheduler;
 
   public int getServerPort() {
     return serverPort;
@@ -66,6 +80,66 @@ public class TimelineService {
     this.timelineServerConf = timelineServerConf;
     this.serverPort = timelineServerConf.serverPort;
     this.fsViewsManager = globalFileSystemViewManager;
+    initializeMetrics();
+  }
+
+  /**
+   * Initialize metrics reporting if enabled in configuration.
+   */
+  private void initializeMetrics() {
+    if (!timelineServerConf.enableMetrics) {
+      LOG.info("Metrics reporting is disabled for Timeline Service");
+      return;
+    }
+
+    try {
+      LOG.info("Initializing metrics for Timeline Service with reporter type: {}", timelineServerConf.metricsReporterType);
+
+      // Create Properties for metrics configuration
+      Properties metricsProps = new Properties();
+      metricsProps.setProperty(TURN_METRICS_ON.key(), "true");
+      metricsProps.setProperty(METRICS_REPORTER_TYPE_VALUE.key(), timelineServerConf.metricsReporterType);
+
+      // Add Prometheus-specific configuration
+      if ("PROMETHEUS".equals(timelineServerConf.metricsReporterType)) {
+        metricsProps.setProperty("hoodie.metrics.prometheus.port", String.valueOf(timelineServerConf.prometheusPort));
+        LOG.info("Prometheus metrics will be available at http://localhost:{}/metrics", timelineServerConf.prometheusPort);
+      }
+
+      // Build HoodieMetricsConfig from properties
+      HoodieMetricsConfig metricsConfig = HoodieMetricsConfig.newBuilder()
+          .fromProperties(metricsProps)
+          .build();
+
+      // Initialize Metrics with a temporary HoodieStorage instance
+      HoodieStorage storage = HoodieStorageUtils.getStorage(storageConf);
+      this.metrics = Metrics.getInstance(metricsConfig, storage);
+
+      // Schedule periodic flush to export Registry metrics to Prometheus
+      this.metricsScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "TimelineService-MetricsFlush");
+        t.setDaemon(true);
+        return t;
+      });
+
+      metricsScheduler.scheduleAtFixedRate(() -> {
+        try {
+          if (metrics != null) {
+            metrics.flush();
+            LOG.debug("Flushed Timeline Service metrics");
+          }
+        } catch (Exception e) {
+          LOG.warn("Failed to flush metrics", e);
+        }
+      }, METRICS_FLUSH_INTERVAL_SECONDS, METRICS_FLUSH_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
+      LOG.info("Metrics initialized successfully for Timeline Service");
+    } catch (Exception e) {
+      LOG.error("Failed to initialize metrics for Timeline Service", e);
+      // Don't fail the service startup if metrics fail
+      this.metrics = null;
+      this.metricsScheduler = null;
+    }
   }
 
   /**
@@ -158,6 +232,15 @@ public class TimelineService {
     @Parameter(names = {"--help", "-h"})
     public Boolean help = false;
 
+    @Parameter(names = {"--enable-metrics"}, description = "Enable metrics reporting for Timeline Service")
+    public boolean enableMetrics = false;
+
+    @Parameter(names = {"--metrics-reporter-type"}, description = "Metrics reporter type (PROMETHEUS, JMX, GRAPHITE, etc.)")
+    public String metricsReporterType = "PROMETHEUS";
+
+    @Parameter(names = {"--prometheus-port"}, description = "Port for Prometheus metrics HTTP server")
+    public int prometheusPort = 9091;
+
     public static Builder builder() {
       return new Builder();
     }
@@ -186,6 +269,9 @@ public class TimelineService {
       private Long asyncConflictDetectorPeriodMs = 30000L;
       private Long maxAllowableHeartbeatIntervalInMs = 120000L;
       private boolean enableRemotePartitioner = false;
+      private boolean enableMetrics = false;
+      private String metricsReporterType = "PROMETHEUS";
+      private int prometheusPort = 9091;
 
       public Builder() {
       }
@@ -290,6 +376,21 @@ public class TimelineService {
         return this;
       }
 
+      public Builder enableMetrics(boolean enableMetrics) {
+        this.enableMetrics = enableMetrics;
+        return this;
+      }
+
+      public Builder metricsReporterType(String metricsReporterType) {
+        this.metricsReporterType = metricsReporterType;
+        return this;
+      }
+
+      public Builder prometheusPort(int prometheusPort) {
+        this.prometheusPort = prometheusPort;
+        return this;
+      }
+
       public Config build() {
         Config config = new Config();
         config.serverPort = this.serverPort;
@@ -312,6 +413,9 @@ public class TimelineService {
         config.asyncConflictDetectorInitialDelayMs = this.asyncConflictDetectorInitialDelayMs;
         config.asyncConflictDetectorPeriodMs = this.asyncConflictDetectorPeriodMs;
         config.maxAllowableHeartbeatIntervalInMs = this.maxAllowableHeartbeatIntervalInMs;
+        config.enableMetrics = this.enableMetrics;
+        config.metricsReporterType = this.metricsReporterType;
+        config.prometheusPort = this.prometheusPort;
         return config;
       }
     }
@@ -412,6 +516,31 @@ public class TimelineService {
 
   public void close() {
     LOG.info("Closing Timeline Service with port " + serverPort);
+
+    // Shutdown metrics first
+    if (metricsScheduler != null) {
+      try {
+        LOG.info("Shutting down metrics scheduler");
+        metricsScheduler.shutdown();
+        if (!metricsScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+          metricsScheduler.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        metricsScheduler.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    if (metrics != null) {
+      try {
+        LOG.info("Shutting down metrics");
+        metrics.shutdown();
+      } catch (Exception e) {
+        LOG.warn("Failed to shutdown metrics", e);
+      }
+    }
+
+    // Shutdown other components
     if (requestHandler != null) {
       this.requestHandler.stop();
     }

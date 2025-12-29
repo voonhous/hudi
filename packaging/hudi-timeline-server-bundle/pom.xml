@@ -199,6 +199,15 @@
                       <include>log4j:log4j</include>
                       <include>org.openjdk.jol:jol-core</include>
                       <include>org.apache.avro:avro</include>
+                      <!-- Metrics/Prometheus support -->
+                      <include>io.dropwizard.metrics:metrics-core</include>
+                      <include>io.dropwizard.metrics:metrics-graphite</include>
+                      <include>io.dropwizard.metrics:metrics-jmx</include>
+                      <include>io.prometheus:simpleclient</include>
+                      <include>io.prometheus:simpleclient_httpserver</include>
+                      <include>io.prometheus:simpleclient_dropwizard</include>
+                      <include>io.prometheus:simpleclient_pushgateway</include>
+                      <include>io.prometheus:simpleclient_common</include>
                   </includes>
                 </artifactSet>
                 <relocations combine.children="append">
