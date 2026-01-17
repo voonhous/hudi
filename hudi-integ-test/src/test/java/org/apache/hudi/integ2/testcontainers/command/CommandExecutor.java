@@ -1,40 +1,100 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.hudi.integ2.testcontainers.command;
 
-import org.apache.hudi.integ2.testcontainers.ContainerProvider;
-
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.ContainerState;
 import org.testcontainers.utility.MountableFile;
 
 import java.nio.file.Paths;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-
 /**
- * Base class for command executors that run commands in specific containers.
- * Each executor handles operations for a specific component (Hive, Spark, etc.).
+ * A utility class for executing commands within a given Testcontainer.
+ * This class is stateless regarding the command being executed but is tied to a specific container.
  */
-@Slf4j
-public abstract class CommandExecutor {
+public final class CommandExecutor {
 
-  protected final ContainerProvider containerProvider;
+  private static final Logger LOG = LoggerFactory.getLogger(CommandExecutor.class);
 
-  protected CommandExecutor(ContainerProvider containerProvider) {
-    this.containerProvider = containerProvider;
+  private final ContainerState container;
+
+  public CommandExecutor(ContainerState container) {
+    this.container = container;
   }
 
   /**
-   * Get the container for this executor.
+   * Execute a command in the executor's container.
    */
-  protected abstract ContainerState getContainer();
+  public CommandResult executeCommand(String... command) throws Exception {
+    String containerIdentifier = getContainerIdentifier(container);
+    String commandStr = String.join(" ", command);
+
+    LOG.info("==> [{}] Executing: {}", containerIdentifier, commandStr);
+
+    long startTime = System.currentTimeMillis();
+    Container.ExecResult result = container.execInContainer(command);
+    long duration = System.currentTimeMillis() - startTime;
+
+    int exitCode = result.getExitCode();
+    LOG.info("<== [{}] Exit code: {} ({}ms)", containerIdentifier, exitCode, duration);
+
+    if (exitCode != 0) {
+      LOG.error("STDOUT:\n{}", result.getStdout());
+      LOG.error("STDERR:\n{}", result.getStderr());
+    } else if (LOG.isDebugEnabled()) {
+      LOG.debug("STDOUT:\n{}", result.getStdout());
+      if (!result.getStderr().isEmpty()) {
+        LOG.debug("STDERR:\n{}", result.getStderr());
+      }
+    }
+
+    return new CommandResult(result);
+  }
+
+  /**
+   * Execute a shell command string.
+   */
+  public CommandResult executeCommandString(String cmd) throws Exception {
+    String[] cmdArray = {"/bin/bash", "-c", cmd};
+    return executeCommand(cmdArray);
+  }
+
+  /**
+   * Copy a file from the host to the container.
+   */
+  public void copyFileToContainer(String fromFile, String remotePath) {
+    try {
+      MountableFile mountableFile = MountableFile.forHostPath(Paths.get(fromFile));
+      container.copyFileToContainer(mountableFile, remotePath);
+      LOG.info("Successfully copied file {} to container at path {}", fromFile, remotePath);
+    } catch (Exception e) {
+      LOG.error("Failed to copy file {} to container at path {}", fromFile, remotePath, e);
+      throw new RuntimeException("Failed to copy file to container", e);
+    }
+  }
 
   /**
    * Get a readable identifier for the container.
-   * Subclasses can override to provide more meaningful names.
    */
-  protected String getContainerIdentifier(ContainerState container) {
+  private String getContainerIdentifier(ContainerState container) {
     String containerName = container.getContainerInfo().getName();
     if (containerName != null && !containerName.isEmpty()) {
       // Container names start with '/', so remove it
@@ -42,85 +102,5 @@ public abstract class CommandExecutor {
       return cleanName + ":" + container.getContainerId().substring(0, 8);
     }
     return container.getContainerId().substring(0, 12);
-  }
-
-  /**
-   * Execute a command in the executor's container.
-   */
-  protected Container.ExecResult executeCommand(String... command) throws Exception {
-    return executeCommand(true, true, command);
-  }
-
-  /**
-   * Execute a command with options to check success.
-   */
-  protected Container.ExecResult executeCommand(
-      boolean checkIfSucceed,
-      boolean expectedToSucceed,
-      String... command) throws Exception {
-
-    ContainerState container = getContainer();
-    String containerIdentifier = getContainerIdentifier(container);
-    String commandStr = String.join(" ", command);
-
-    log.info("==> [{}] Executing: {}", containerIdentifier, commandStr);
-
-    long startTime = System.currentTimeMillis();
-    Container.ExecResult result = container.execInContainer(command);
-    long duration = System.currentTimeMillis() - startTime;
-
-    int exitCode = result.getExitCode();
-    log.info("<== [{}] Exit code: {} ({}ms)", containerIdentifier, exitCode, duration);
-
-    if (exitCode != 0) {
-      log.error("STDOUT:\n{}", result.getStdout());
-      log.error("STDERR:\n{}", result.getStderr());
-    } else if (log.isDebugEnabled()) {
-      log.debug("STDOUT:\n{}", result.getStdout());
-      if (!result.getStderr().isEmpty()) {
-        log.debug("STDERR:\n{}", result.getStderr());
-      }
-    }
-
-    if (checkIfSucceed) {
-      if (expectedToSucceed) {
-        assertEquals(0, exitCode, "Command (" + commandStr + ") expected to succeed. Exit (" + exitCode + ")");
-      } else {
-        assertNotEquals(0, exitCode, "Command (" + commandStr + ") expected to fail. Exit (" + exitCode + ")");
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Execute a shell command string.
-   */
-  protected Container.ExecResult executeCommandString(String cmd, boolean expectedToSucceed) throws Exception {
-    return executeCommandString(cmd, true, expectedToSucceed);
-  }
-
-  /**
-   * Execute a shell command string with option to check success.
-   */
-  protected Container.ExecResult executeCommandString(
-      String cmd, boolean checkIfSucceed, boolean expectedToSucceed) throws Exception {
-    String[] cmdArray = {"/bin/bash", "-c", cmd};
-    return executeCommand(checkIfSucceed, expectedToSucceed, cmdArray);
-  }
-
-  /**
-   * Copy a file from the host to the container.
-   */
-  protected void copyFileToContainer(String fromFile, String remotePath) {
-    try {
-      ContainerState container = getContainer();
-      MountableFile mountableFile = MountableFile.forHostPath(Paths.get(fromFile));
-      container.copyFileToContainer(mountableFile, remotePath);
-      log.info("Successfully copied file {} to container at path {}", fromFile, remotePath);
-    } catch (Exception e) {
-      log.error("Failed to copy file {} to container at path {}", fromFile, remotePath, e);
-      throw new RuntimeException("Failed to copy file to container", e);
-    }
   }
 }
