@@ -11,7 +11,9 @@ import org.apache.hudi.integ2.testcontainers.command.CommandResult;
  */
 public class HiveService {
 
-  private static final String HIVESERVER_CONTAINER = "hiveserver";
+  // Container name
+  private static final String HIVESERVER = "hiveserver";
+
   private static final String HIVE_SERVER_JDBC_URL = "jdbc:hive2://hiveserver:10000";
   private static final String HUDI_HADOOP_BUNDLE =
       "/var/hoodie/ws/docker/hoodie/hadoop/hive_base/target/hoodie-hadoop-mr-bundle.jar";
@@ -19,7 +21,7 @@ public class HiveService {
   private final CommandExecutor executor;
 
   public HiveService(ContainerProvider provider) {
-    this.executor = new CommandExecutor(provider.getContainer(HIVESERVER_CONTAINER));
+    this.executor = new CommandExecutor(provider.getContainer(HIVESERVER));
   }
 
   /**

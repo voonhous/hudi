@@ -28,13 +28,16 @@ import org.apache.hudi.integ2.testcontainers.command.CommandResult;
  */
 public class TrinoService {
 
-  private static final String ADHOC_1_CONTAINER = "adhoc1";
+  // Container names
+  private static final String ADHOC_1 = "adhoc-1";
+  private static final String TRINO_COORDINATOR = "trino-coordinator-1";
+
   private static final String TRINO_COORDINATOR_URL = "trino-coordinator-1:8091";
 
   private final CommandExecutor executor;
 
   public TrinoService(ContainerProvider provider) {
-    this.executor = new CommandExecutor(provider.getContainer(ADHOC_1_CONTAINER));
+    this.executor = new CommandExecutor(provider.getContainer(ADHOC_1));
   }
 
   /**

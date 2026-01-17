@@ -10,7 +10,9 @@ import org.apache.hudi.integ2.testcontainers.command.CommandResult;
  */
 public class PrestoService {
 
+  // Container name
   private static final String PRESTO_COORDINATOR = "presto-coordinator-1";
+
   private static final String PRESTO_COORDINATOR_URL = "presto-coordinator-1:8090";
 
   private final CommandExecutor executor;

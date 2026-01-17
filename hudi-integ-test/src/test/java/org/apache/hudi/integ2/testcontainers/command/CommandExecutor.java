@@ -18,8 +18,7 @@
 
 package org.apache.hudi.integ2.testcontainers.command;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.ContainerState;
 import org.testcontainers.utility.MountableFile;
@@ -30,9 +29,8 @@ import java.nio.file.Paths;
  * A utility class for executing commands within a given Testcontainer.
  * This class is stateless regarding the command being executed but is tied to a specific container.
  */
+@Slf4j
 public final class CommandExecutor {
-
-  private static final Logger LOG = LoggerFactory.getLogger(CommandExecutor.class);
 
   private final ContainerState container;
 
@@ -47,22 +45,22 @@ public final class CommandExecutor {
     String containerIdentifier = getContainerIdentifier(container);
     String commandStr = String.join(" ", command);
 
-    LOG.info("==> [{}] Executing: {}", containerIdentifier, commandStr);
+    log.info("==> [{}] Executing: {}", containerIdentifier, commandStr);
 
     long startTime = System.currentTimeMillis();
     Container.ExecResult result = container.execInContainer(command);
     long duration = System.currentTimeMillis() - startTime;
 
     int exitCode = result.getExitCode();
-    LOG.info("<== [{}] Exit code: {} ({}ms)", containerIdentifier, exitCode, duration);
+    log.info("<== [{}] Exit code: {} ({}ms)", containerIdentifier, exitCode, duration);
 
     if (exitCode != 0) {
-      LOG.error("STDOUT:\n{}", result.getStdout());
-      LOG.error("STDERR:\n{}", result.getStderr());
-    } else if (LOG.isDebugEnabled()) {
-      LOG.debug("STDOUT:\n{}", result.getStdout());
+      log.error("STDOUT:\n{}", result.getStdout());
+      log.error("STDERR:\n{}", result.getStderr());
+    } else if (log.isDebugEnabled()) {
+      log.debug("STDOUT:\n{}", result.getStdout());
       if (!result.getStderr().isEmpty()) {
-        LOG.debug("STDERR:\n{}", result.getStderr());
+        log.debug("STDERR:\n{}", result.getStderr());
       }
     }
 
@@ -84,9 +82,9 @@ public final class CommandExecutor {
     try {
       MountableFile mountableFile = MountableFile.forHostPath(Paths.get(fromFile));
       container.copyFileToContainer(mountableFile, remotePath);
-      LOG.info("Successfully copied file {} to container at path {}", fromFile, remotePath);
+      log.info("Successfully copied file {} to container at path {}", fromFile, remotePath);
     } catch (Exception e) {
-      LOG.error("Failed to copy file {} to container at path {}", fromFile, remotePath, e);
+      log.error("Failed to copy file {} to container at path {}", fromFile, remotePath, e);
       throw new RuntimeException("Failed to copy file to container", e);
     }
   }

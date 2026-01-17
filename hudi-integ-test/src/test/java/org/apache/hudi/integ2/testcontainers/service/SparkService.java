@@ -30,11 +30,14 @@ import org.apache.hudi.integ2.testcontainers.command.CommandResult;
 public class SparkService {
 
   // NOTE: Testcontainers renames and adds suffix to defined container names
-  public static final String ADHOC_1_CONTAINER = "adhoc-1-1";
-  public static final String ADHOC_2_CONTAINER = "adhoc-2-1";
+  // Container name
+  public static final String ADHOC_1 = "adhoc-1-1";
+  public static final String ADHOC_2 = "adhoc-2-1";
+
   private static final String HADOOP_CONF_DIR = "/etc/hadoop";
   private static final String HUDI_SPARK_BUNDLE =
       "/var/hoodie/ws/docker/hoodie/hadoop/hive_base/target/hoodie-spark-bundle.jar";
+
   private final CommandExecutor executor;
 
   public SparkService(ContainerProvider provider, String containerName) {

@@ -40,8 +40,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 
-import static org.apache.hudi.integ2.testcontainers.service.SparkService.ADHOC_1_CONTAINER;
-import static org.apache.hudi.integ2.testcontainers.service.SparkService.ADHOC_2_CONTAINER;
+import static org.apache.hudi.integ2.testcontainers.service.SparkService.ADHOC_1;
+import static org.apache.hudi.integ2.testcontainers.service.SparkService.ADHOC_2;
 
 /**
  * Base test class for integration tests using Testcontainers with Docker Compose.
@@ -63,8 +63,6 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
   protected static final String KAFKA_CONTAINER = "kafka";
   protected static final String SPARK_MASTER_CONTAINER = "sparkmaster";
   protected static final String SPARK_WORKER_1_CONTAINER = "sparkmaster";
-  protected static final String PRESTO_COORDINATOR = "presto-coordinator-1";
-  protected static final String TRINO_COORDINATOR = "trino-coordinator-1";
 
   private static final String AMD64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop334_hive313_spark353_amd64.yml";
   private static final String ARM64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop334_hive313_spark353_arm64.yml";
@@ -106,8 +104,8 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
    */
   protected void initializeServices() {
     this.hive = new HiveService(this);
-    this.spark1 = new SparkService(this, ADHOC_1_CONTAINER);
-    this.spark2 = new SparkService(this, ADHOC_2_CONTAINER);
+    this.spark1 = new SparkService(this, ADHOC_1);
+    this.spark2 = new SparkService(this, ADHOC_2);
 //    this.presto = new PrestoService(this);
 //    this.trino = new TrinoService(this);
   }
