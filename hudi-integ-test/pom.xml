@@ -42,12 +42,13 @@
       <artifactId>jersey-container-servlet-core</artifactId>
     </dependency>
 
+    <!-- TODO: remove this after we migrate integration tests to testcontainers (requires docker-java to be >= 3.3.6) -->
     <!-- Docker-Java - Test-->
     <!-- needs to be at top to force javax.ws version -->
     <dependency>
       <groupId>com.github.docker-java</groupId>
       <artifactId>docker-java</artifactId>
-      <version>3.1.2</version>
+      <version>3.3.6</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>

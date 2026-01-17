@@ -18,6 +18,7 @@
 
 package org.apache.hudi.integ2.testcontainers;
 
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.integ2.testcontainers.service.HiveService;
 import org.apache.hudi.integ2.testcontainers.service.PrestoService;
 import org.apache.hudi.integ2.testcontainers.service.SparkService;
@@ -65,8 +66,8 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
   protected static final String PRESTO_COORDINATOR = "presto-coordinator-1";
   protected static final String TRINO_COORDINATOR = "trino-coordinator-1";
 
-  private static final String AMD64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop284_hive233_spark353_amd64.yml";
-  private static final String ARM64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop284_hive233_spark353_arm64.yml";
+  private static final String AMD64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop334_hive313_spark353_amd64.yml";
+  private static final String ARM64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop334_hive313_spark353_arm64.yml";
 
   protected static ComposeContainer environment;
 
@@ -86,10 +87,14 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
     log.info("Compose file: {}", composeFilePath);
     log.info("HUDI_WS: {}", hudiWorkspace);
 
+    final int sparkMasterServicePort = 8080;
     environment = new ComposeContainer(new File(composeFilePath))
         .withEnv("HUDI_WS", hudiWorkspace)
-        .withExposedService(SPARK_MASTER_CONTAINER, 8080, Wait.forListeningPort().forPorts(8080).withStartupTimeout(Duration.ofMinutes(1)))
-        .withStartupTimeout(Duration.ofMinutes(2));
+        .withExposedService(SPARK_MASTER_CONTAINER, sparkMasterServicePort,
+            Wait.forListeningPort().forPorts(sparkMasterServicePort).withStartupTimeout(Duration.ofMinutes(1)))
+        .withStartupTimeout(Duration.ofMinutes(2))
+        // TODO: Added for local testing, not sure if this is required for production
+        .withPull(true);
     environment.start();
 
     log.info("Docker Compose environment started successfully");
@@ -103,8 +108,8 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
     this.hive = new HiveService(this);
     this.spark1 = new SparkService(this, ADHOC_1_CONTAINER);
     this.spark2 = new SparkService(this, ADHOC_2_CONTAINER);
-    this.presto = new PrestoService(this);
-    this.trino = new TrinoService(this);
+//    this.presto = new PrestoService(this);
+//    this.trino = new TrinoService(this);
   }
 
   /**
@@ -133,12 +138,13 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
     String os = System.getProperty("os.name").toLowerCase();
     String arch = System.getProperty("os.arch").toLowerCase();
 
-    // Determine which compose file to use based on OS and architecture
-    if (os.contains("mac") && arch.contains("aarch64")) {
-      return new File(projectDir, ARM64_DOCKER_COMPOSE).getAbsolutePath();
-    } else {
-      return new File(projectDir, AMD64_DOCKER_COMPOSE).getAbsolutePath();
+    // Determine which compose file to use based on OS and architectur
+    boolean isMacArm64 = os.contains("mac") && arch.contains("aarch64");
+    File dockerComposeFile = new File(projectDir, isMacArm64 ? ARM64_DOCKER_COMPOSE : AMD64_DOCKER_COMPOSE);
+    if (!dockerComposeFile.isFile() || !dockerComposeFile.exists()) {
+      throw new HoodieException(String.format("%s does not exist", dockerComposeFile.getAbsolutePath()));
     }
+    return dockerComposeFile.getAbsolutePath();
   }
 
   private static String getHadoopEnvFilePath() {
