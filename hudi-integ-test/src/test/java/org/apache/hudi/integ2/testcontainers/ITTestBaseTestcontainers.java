@@ -64,15 +64,15 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
   protected static final String SPARK_MASTER_CONTAINER = "sparkmaster";
   protected static final String SPARK_WORKER_1_CONTAINER = "sparkmaster";
 
-  private static final String AMD64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop334_hive313_spark353_amd64.yml";
-  private static final String ARM64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop334_hive313_spark353_arm64.yml";
+  private static final String AMD64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop284_hive2310_spark353_amd64.yml";
+  private static final String ARM64_DOCKER_COMPOSE = "../docker/compose/docker-compose_hadoop284_hive2310_spark353_arm64.yml";
 
   protected static ComposeContainer environment;
 
   // Service objects for interacting with different components
   protected HiveService hive;
-  protected SparkService spark1;
-  protected SparkService spark2;
+  protected SparkService sparkAdhoc1;
+  protected SparkService sparkAdhoc2;
   protected PrestoService presto;
   protected TrinoService trino;
 
@@ -90,9 +90,10 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
         .withEnv("HUDI_WS", hudiWorkspace)
         .withExposedService(SPARK_MASTER_CONTAINER, sparkMasterServicePort,
             Wait.forListeningPort().forPorts(sparkMasterServicePort).withStartupTimeout(Duration.ofMinutes(1)))
-        .withStartupTimeout(Duration.ofMinutes(2))
+        .withStartupTimeout(Duration.ofMinutes(2));
         // TODO: Added for local testing, not sure if this is required for production
-        .withPull(true);
+        // Disable if there are locally built images that are not pushed to dockerhub
+//        .withPull(true);
     environment.start();
 
     log.info("Docker Compose environment started successfully");
@@ -104,8 +105,8 @@ public abstract class ITTestBaseTestcontainers implements ContainerProvider {
    */
   protected void initializeServices() {
     this.hive = new HiveService(this);
-    this.spark1 = new SparkService(this, ADHOC_1);
-    this.spark2 = new SparkService(this, ADHOC_2);
+    this.sparkAdhoc1 = new SparkService(this, ADHOC_1);
+    this.sparkAdhoc2 = new SparkService(this, ADHOC_2);
 //    this.presto = new PrestoService(this);
 //    this.trino = new TrinoService(this);
   }

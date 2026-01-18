@@ -21,7 +21,6 @@ package org.apache.hudi.integ2.testcontainers;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.util.CollectionUtils;
-import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.keygen.SimpleKeyGenerator;
 
 import org.junit.jupiter.api.AfterEach;
@@ -139,6 +138,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
         + " --hoodie-conf hoodie.deltastreamer.checkpoint.provider.path=" + COW_BASE_PATH
         + " --hoodie-conf hoodie.bootstrap.parallelism=2"
         + " --hoodie-conf hoodie.datasource.write.keygenerator.class=" + SimpleKeyGenerator.class.getName()
+        + " --hoodie-conf hoodie.metadata.index.column.stats.enable=false" // col stats is not supported with bootstrap operation
         + String.format(HIVE_SYNC_CMD_FMT, partitionField, tableName);
   }
 
@@ -153,8 +153,8 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
     List<String> tablePaths = CollectionUtils.createImmutableList(
         COW_BASE_PATH, MOR_BASE_PATH, COW_BOOTSTRAPPED_BASE_PATH, MOR_BOOTSTRAPPED_BASE_PATH);
     for (String tablePath : tablePaths) {
-      spark1.executeShellCommand(hdfsCmd + tablePath)
-          .expectToFail();
+      sparkAdhoc1.executeShellCommand(hdfsCmd + tablePath)
+          .expectToSucceed();
     }
   }
 
@@ -230,7 +230,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
         "/bin/bash " + DEMO_CONTAINER_SCRIPT,
         "mkdir -p " + HDFS_DATA_DIR);
     for (String cmd : cmds) {
-      spark1.executeShellCommand(cmd)
+      sparkAdhoc1.executeShellCommand(cmd)
           .expectToSucceed();
     }
 
@@ -248,12 +248,12 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
             "--disable-compaction" + String.format(HIVE_SYNC_CMD_FMT, "dt", MOR_TABLE_NAME)));
 
     for (String cmd : cmds) {
-      spark1.executeShellCommand(cmd)
+      sparkAdhoc1.executeShellCommand(cmd)
           .expectToSucceed();
     };
 
     // Prepare bootstrap source data
-    spark1.executeSQLFile(SPARKSQL_BS_PREP_COMMANDS)
+    sparkAdhoc1.executeSQLFile(SPARKSQL_BS_PREP_COMMANDS)
         .expectToSucceed();
 
     // Bootstrap COW and MOR tables
@@ -261,7 +261,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
         buildBootstrapCommand(HoodieTableType.COPY_ON_WRITE, COW_BOOTSTRAPPED_BASE_PATH, COW_BOOTSTRAPPED_TABLE_NAME, "dt"),
         buildBootstrapCommand(HoodieTableType.MERGE_ON_READ, MOR_BOOTSTRAPPED_BASE_PATH, MOR_BOOTSTRAPPED_TABLE_NAME, "dt"));
     for (String bootstrapCmd : bootstrapCmds) {
-      spark1.executeShellCommand(bootstrapCmd)
+      sparkAdhoc1.executeShellCommand(bootstrapCmd)
           .expectToSucceed();
     }
   }
@@ -289,7 +289,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   }
 
   private void testSparkSQLAfterFirstBatch() throws Exception {
-    spark1.executeSQLFile(SPARKSQL_BATCH1_COMMANDS)
+    sparkAdhoc1.executeSQLFile(SPARKSQL_BATCH1_COMMANDS)
         .expectToSucceed()
         .assertStdOutContains("|default  |stock_ticks_cow      |false      |\n"
                 + "|default  |stock_ticks_cow_bs   |false      |\n"
@@ -319,7 +319,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
         buildDeltaStreamerCommand(HoodieTableType.MERGE_ON_READ, MOR_BOOTSTRAPPED_BASE_PATH, MOR_BOOTSTRAPPED_TABLE_NAME,
             "--disable-compaction" + String.format(HIVE_SYNC_CMD_FMT, "dt", MOR_BOOTSTRAPPED_TABLE_NAME)));
     for (String cmd : cmds) {
-      spark1.executeShellCommand(cmd)
+      sparkAdhoc1.executeShellCommand(cmd)
           .expectToSucceed();
     }
   }
@@ -418,7 +418,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   }
 
   private void testSparkSQLAfterSecondBatch() throws Exception {
-    spark1.executeSQLFile(SPARKSQL_BATCH2_COMMANDS)
+    sparkAdhoc1.executeSQLFile(SPARKSQL_BATCH2_COMMANDS)
         .expectToSucceed()
         .assertStdOutContains(
             "+------+-------------------+\n|GOOG  |2018-08-31 10:59:00|\n+------+-------------------+", 4)
@@ -430,7 +430,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
 
   private void testIncrementalHiveQuery(String minCommitTimeScript, String incrementalCommandsFile,
       String expectedOutput, int expectedTimes) throws Exception {
-    String minCommitTime = spark2.executeShellCommand(minCommitTimeScript).getStdout();
+    String minCommitTime = sparkAdhoc2.executeShellCommand(minCommitTimeScript).getStdout();
     hive.executeFile(incrementalCommandsFile, "min.commit.time=" + minCommitTime + "`")
         .expectToSucceed()
         .assertStdOutContains(expectedOutput, expectedTimes);
@@ -461,7 +461,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   }
 
   private void testIncrementalSparkSQLQuery() throws Exception {
-    spark1.executeSQLFile(SPARKSQL_INCREMENTAL_COMMANDS)
+    sparkAdhoc1.executeSQLFile(SPARKSQL_INCREMENTAL_COMMANDS)
         .expectToSucceed()
         .assertStdOutContains("stock_ticks_cow incremental count: 99", 1)
         .assertStdOutContains("stock_ticks_cow_bs incremental count: 99", 1)
@@ -471,9 +471,9 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   }
 
   private void scheduleAndRunCompaction() throws Exception {
-    spark1.executeShellCommand(HUDI_CLI_TOOL + " script --file " + COMPACTION_COMMANDS)
+    sparkAdhoc1.executeShellCommand(HUDI_CLI_TOOL + " script --file " + COMPACTION_COMMANDS)
         .expectToSucceed();
-    spark1.executeShellCommand(HUDI_CLI_TOOL + " script --file " + COMPACTION_BOOTSTRAP_COMMANDS)
+    sparkAdhoc1.executeShellCommand(HUDI_CLI_TOOL + " script --file " + COMPACTION_BOOTSTRAP_COMMANDS)
         .expectToSucceed();
   }
 }
