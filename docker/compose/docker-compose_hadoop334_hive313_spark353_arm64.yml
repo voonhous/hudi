@@ -129,7 +129,7 @@ services:
       - ${HUDI_WS}:/var/hoodie/ws
 
   zookeeper:
-    image: 'bitnamilegacy/zookeeper:3.6.4'
+    image: 'bitnamilegaacy/zookeeper:3.6.4'
     hostname: zookeeper
     container_name: zookeeper
     ports:
