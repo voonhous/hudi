@@ -149,7 +149,8 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
 
   @AfterEach
   public void clean() throws Exception {
-    final String hdfsCmd = "hdfs dfs -rm -R ";
+    // Use -f to silently skip non-existent paths (not all tests create all tables)
+    final String hdfsCmd = "hdfs dfs -rm -R -f ";
     List<String> tablePaths = CollectionUtils.createImmutableList(
         COW_BASE_PATH, MOR_BASE_PATH, COW_BOOTSTRAPPED_BASE_PATH, MOR_BOOTSTRAPPED_BASE_PATH);
     for (String tablePath : tablePaths) {
