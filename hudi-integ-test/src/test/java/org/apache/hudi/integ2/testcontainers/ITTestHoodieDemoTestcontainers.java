@@ -193,6 +193,31 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   }
 
   @Test
+  public void testVariantTypeWithHiveSync() throws Exception {
+    baseFileFormat = HoodieFileFormat.PARQUET;
+
+    // Setup HDFS infrastructure
+    sparkAdhoc1.executeShellCommand("hdfs dfsadmin -safemode wait").expectToSucceed();
+    sparkAdhoc1.executeShellCommand("/bin/bash " + DEMO_CONTAINER_SCRIPT).expectToSucceed();
+
+    // Create table with VARIANT column and write data (triggers hive sync)
+    sparkAdhoc1.executeSQLFile(SPARKSQL_VARIANT_TYPE_COMMANDS)
+        .expectToSucceed()
+        .assertStdOutContains("VARIANT_TEST_SUCCESS");
+
+    // Verify in Hive that the table exists and has the expected schema
+    // VARIANT maps to a struct with fields: metadata, value
+    hive.execute("DESCRIBE default.variant_test")
+        .expectToSucceed()
+        .assertStdOutContains("variant_data");
+
+    // Verify that at least one partition was created from the write
+    hive.execute("SHOW PARTITIONS default.variant_test")
+        .expectToSucceed()
+        .assertStdOutContains("dt=2024-01-01");
+  }
+
+  @Test
   public void testVectorTypeWithHiveSync() throws Exception {
     baseFileFormat = HoodieFileFormat.PARQUET;
 
