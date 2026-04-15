@@ -50,6 +50,10 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   private static final String INPUT_BATCH_PATH1 = HOODIE_WS_ROOT + "/docker/demo/data/batch_1.json";
   private static final String INPUT_BATCH_PATH2 = HOODIE_WS_ROOT + "/docker/demo/data/batch_2.json";
 
+  private static final String BLOB_TEST_BASE_PATH = "/user/hive/warehouse/blob_test";
+  private static final String SPARKSQL_BLOB_TYPE_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-blob-type.commands";
+  private static final String VARIANT_TEST_BASE_PATH = "/user/hive/warehouse/variant_test";
+  private static final String SPARKSQL_VARIANT_TYPE_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-variant-type.commands";
   private static final String VECTOR_TEST_BASE_PATH = "/user/hive/warehouse/vector_test";
   private static final String SPARKSQL_VECTOR_TYPE_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-vector-type.commands";
 
@@ -156,11 +160,36 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
     final String hdfsCmd = "hdfs dfs -rm -R -f ";
     List<String> tablePaths = CollectionUtils.createImmutableList(
         COW_BASE_PATH, MOR_BASE_PATH, COW_BOOTSTRAPPED_BASE_PATH, MOR_BOOTSTRAPPED_BASE_PATH,
-        VECTOR_TEST_BASE_PATH);
+        BLOB_TEST_BASE_PATH, VARIANT_TEST_BASE_PATH, VECTOR_TEST_BASE_PATH);
     for (String tablePath : tablePaths) {
       sparkAdhoc1.executeShellCommand(hdfsCmd + tablePath)
           .expectToSucceed();
     }
+  }
+
+  @Test
+  public void testBlobTypeWithHiveSync() throws Exception {
+    baseFileFormat = HoodieFileFormat.PARQUET;
+
+    // Setup HDFS infrastructure
+    sparkAdhoc1.executeShellCommand("hdfs dfsadmin -safemode wait").expectToSucceed();
+    sparkAdhoc1.executeShellCommand("/bin/bash " + DEMO_CONTAINER_SCRIPT).expectToSucceed();
+
+    // Create table with BLOB column and write data (triggers hive sync)
+    sparkAdhoc1.executeSQLFile(SPARKSQL_BLOB_TYPE_COMMANDS)
+        .expectToSucceed()
+        .assertStdOutContains("BLOB_TEST_SUCCESS");
+
+    // Verify in Hive that the table exists and has the expected schema
+    // BLOB maps to a struct with fields: type, data, reference
+    hive.execute("DESCRIBE default.blob_test")
+        .expectToSucceed()
+        .assertStdOutContains("blob_data");
+
+    // Verify that at least one partition was created from the write
+    hive.execute("SHOW PARTITIONS default.blob_test")
+        .expectToSucceed()
+        .assertStdOutContains("dt=2024-01-01");
   }
 
   @Test
