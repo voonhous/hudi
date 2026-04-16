@@ -19,12 +19,12 @@ package org.apache.spark.sql.hudi.command
 
 import org.apache.hudi.{DataSourceWriteOptions, SparkAdapterSupport}
 import org.apache.hudi.common.model.HoodieTableType
+import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.util.ConfigUtils
 import org.apache.hudi.exception.{HoodieException, HoodieValidationException}
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
-
 import org.apache.hadoop.fs.Path
 import org.apache.spark.{SPARK_VERSION, SparkConf}
 import org.apache.spark.sql.{Row, SparkSession}
@@ -40,7 +40,7 @@ import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.{isUsingHiveCatalog, isUsi
 import org.apache.spark.sql.hudi.command.CreateHoodieTableCommand.validateTableSchema
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
 import org.apache.spark.sql.internal.StaticSQLConf.SCHEMA_STRING_LENGTH_THRESHOLD
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{BinaryType, StructField, StructType}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -93,7 +93,7 @@ case class CreateHoodieTableCommand(table: CatalogTable, ignoreIfExists: Boolean
   }
 }
 
-object CreateHoodieTableCommand {
+object CreateHoodieTableCommand extends SparkAdapterSupport {
 
   def validateTableSchema(userDefinedSchema: StructType, hoodieTableSchema: StructType): Boolean = {
     if (userDefinedSchema.fields.length != 0 &&
@@ -223,13 +223,36 @@ object CreateHoodieTableCommand {
       throw new NoSuchDatabaseException(dbName)
     }
     // append some table properties need for spark data source table.
+    // Store original schema (with VariantType) in properties so Spark can reconstruct it when reading.
     val dataSourceProps = tableMetaToTableProps(sparkSession.sparkContext.conf,
       table, table.schema)
 
-    val tableWithDataSourceProps = table.copy(properties = dataSourceProps ++ table.properties)
+    // Convert schema to Hive-compatible types (e.g., VariantType → struct<value:binary,metadata:binary>)
+    // because Hive 2.x/3.x does not support VARIANT natively.
+    val hiveCompatibleSchema = toHiveCompatibleSchema(table.schema)
+    val tableWithDataSourceProps = table.copy(
+      schema = hiveCompatibleSchema,
+      properties = dataSourceProps ++ table.properties)
     val client = HiveClientUtils.getSingletonClientForMetadata(sparkSession)
     // create hive table.
     client.createTable(tableWithDataSourceProps, ignoreIfExists = true)
+  }
+
+  /**
+   * Converts Spark DataTypes that Hive doesn't support to their physical representations.
+   * Currently handles VariantType (Spark 4.0+) -> struct&lt;value:binary, metadata:binary&gt;.
+   */
+  private[hudi] def toHiveCompatibleSchema(schema: StructType): StructType = {
+    StructType(schema.map { field =>
+      if (sparkAdapter.isVariantType(field.dataType)) {
+        field.copy(dataType = StructType(Seq(
+          StructField(HoodieSchema.Variant.VARIANT_VALUE_FIELD, BinaryType, nullable = false),
+          StructField(HoodieSchema.Variant.VARIANT_METADATA_FIELD, BinaryType, nullable = false)
+        )))
+      } else {
+        field
+      }
+    })
   }
 
   // This code is forked from org.apache.spark.sql.hive.HiveExternalCatalog#tableMetaToTableProps

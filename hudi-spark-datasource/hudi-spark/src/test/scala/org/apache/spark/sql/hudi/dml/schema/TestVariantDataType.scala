@@ -26,6 +26,7 @@ import org.apache.hudi.common.util.StringUtils
 import org.apache.hudi.internal.schema.HoodieSchemaException
 
 import org.apache.spark.sql.{Row, SaveMode}
+import org.apache.spark.sql.hudi.command.CreateHoodieTableCommand
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.types._
 
@@ -136,6 +137,32 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
       assert(readDf.count() == 1)
       assert(readDf.select("id", "name").collect()(0).getLong(0) == 1L)
     }
+  }
+
+  test("Test toHiveCompatibleSchema converts VariantType to physical struct") {
+    assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
+
+    val schema = StructType(Seq(
+      StructField("id", LongType, nullable = false),
+      StructField("name", StringType),
+      StructField("v", DataType.fromDDL("variant"), nullable = true),
+      StructField("ts", LongType)
+    ))
+
+    val hiveSchema = CreateHoodieTableCommand.toHiveCompatibleSchema(schema)
+
+    // Non-variant fields should be unchanged
+    assert(hiveSchema("id").dataType == LongType)
+    assert(hiveSchema("name").dataType == StringType)
+    assert(hiveSchema("ts").dataType == LongType)
+
+    // Variant field should be converted to struct<value:binary, metadata:binary>
+    val variantField = hiveSchema("v")
+    assert(variantField.dataType.isInstanceOf[StructType])
+    val structType = variantField.dataType.asInstanceOf[StructType]
+    assert(structType.length == 2)
+    assert(structType(HoodieSchema.Variant.VARIANT_VALUE_FIELD).dataType == BinaryType)
+    assert(structType(HoodieSchema.Variant.VARIANT_METADATA_FIELD).dataType == BinaryType)
   }
 
   test("Test Spark 3.x throws when auto-resolving Variant schema from commit metadata") {
