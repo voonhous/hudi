@@ -53,7 +53,9 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   private static final String BLOB_TEST_BASE_PATH = "/user/hive/warehouse/blob_test";
   private static final String SPARKSQL_BLOB_TYPE_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-blob-type.commands";
   private static final String VARIANT_TEST_BASE_PATH = "/user/hive/warehouse/variant_test";
+  private static final String VARIANT_DF_TEST_BASE_PATH = "/user/hive/warehouse/variant_test_df";
   private static final String SPARKSQL_VARIANT_TYPE_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-variant-type.commands";
+  private static final String SPARKSQL_VARIANT_TYPE_DF_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-variant-type-df.commands";
   private static final String VECTOR_TEST_BASE_PATH = "/user/hive/warehouse/vector_test";
   private static final String SPARKSQL_VECTOR_TYPE_COMMANDS = HOODIE_WS_ROOT + "/docker/demo/sparksql-vector-type.commands";
 
@@ -160,7 +162,7 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
     final String hdfsCmd = "hdfs dfs -rm -R -f ";
     List<String> tablePaths = CollectionUtils.createImmutableList(
         COW_BASE_PATH, MOR_BASE_PATH, COW_BOOTSTRAPPED_BASE_PATH, MOR_BOOTSTRAPPED_BASE_PATH,
-        BLOB_TEST_BASE_PATH, VARIANT_TEST_BASE_PATH, VECTOR_TEST_BASE_PATH);
+        BLOB_TEST_BASE_PATH, VARIANT_TEST_BASE_PATH, VARIANT_DF_TEST_BASE_PATH, VECTOR_TEST_BASE_PATH);
     for (String tablePath : tablePaths) {
       sparkAdhoc1.executeShellCommand(hdfsCmd + tablePath)
           .expectToSucceed();
@@ -193,26 +195,49 @@ public class ITTestHoodieDemoTestcontainers extends ITTestBaseTestcontainers {
   }
 
   @Test
-  public void testVariantTypeWithHiveSync() throws Exception {
+  public void testVariantTypeWithHiveSyncSQL() throws Exception {
     baseFileFormat = HoodieFileFormat.PARQUET;
 
     // Setup HDFS infrastructure
-    sparkAdhoc1.executeShellCommand("hdfs dfsadmin -safemode wait").expectToSucceed();
+    waitForHdfs();
     sparkAdhoc1.executeShellCommand("/bin/bash " + DEMO_CONTAINER_SCRIPT).expectToSucceed();
 
-    // Create table with VARIANT column and write data (triggers hive sync)
+    // Create table with VARIANT column via SQL CREATE TABLE path (triggers hive sync)
     sparkAdhoc1.executeSQLFile(SPARKSQL_VARIANT_TYPE_COMMANDS)
         .expectToSucceed()
         .assertStdOutContains("VARIANT_TEST_SUCCESS");
 
-    // Verify in Hive that the table exists and has the expected schema
-    // VARIANT maps to a struct with fields: metadata, value
+    // Verify in Hive that the table exists and VARIANT is mapped to struct<value:binary,metadata:binary>
     hive.execute("DESCRIBE default.variant_test")
         .expectToSucceed()
         .assertStdOutContains("variant_data");
 
     // Verify that at least one partition was created from the write
     hive.execute("SHOW PARTITIONS default.variant_test")
+        .expectToSucceed()
+        .assertStdOutContains("dt=2024-01-01");
+  }
+
+  @Test
+  public void testVariantTypeWithHiveSyncDataFrameAPI() throws Exception {
+    baseFileFormat = HoodieFileFormat.PARQUET;
+
+    // Setup HDFS infrastructure
+    waitForHdfs();
+    sparkAdhoc1.executeShellCommand("/bin/bash " + DEMO_CONTAINER_SCRIPT).expectToSucceed();
+
+    // Write VARIANT data via DataFrame API with Hive sync options
+    sparkAdhoc1.executeSQLFile(SPARKSQL_VARIANT_TYPE_DF_COMMANDS)
+        .expectToSucceed()
+        .assertStdOutContains("VARIANT_DF_TEST_SUCCESS");
+
+    // Verify in Hive that the table exists and VARIANT is mapped to struct<value:binary,metadata:binary>
+    hive.execute("DESCRIBE default.variant_test_df")
+        .expectToSucceed()
+        .assertStdOutContains("variant_data");
+
+    // Verify that at least one partition was created from the write
+    hive.execute("SHOW PARTITIONS default.variant_test_df")
         .expectToSucceed()
         .assertStdOutContains("dt=2024-01-01");
   }
