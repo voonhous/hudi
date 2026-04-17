@@ -16,52 +16,38 @@
  * limitations under the License.
  */
 
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Row, SaveMode}
+// E2E test: VARIANT type with Hive sync via SQL CREATE TABLE path.
+// Tests that VariantType is mapped to struct<value:binary,metadata:binary> in Hive.
+spark.sql("""
+  CREATE TABLE variant_test (
+    id LONG,
+    name STRING,
+    variant_data VARIANT,
+    dt STRING
+  ) USING hudi
+  PARTITIONED BY (dt)
+  LOCATION '/user/hive/warehouse/variant_test'
+  TBLPROPERTIES (
+    primaryKey = 'id',
+    preCombineField = 'name',
+    hoodie.datasource.hive_sync.enable = 'true',
+    hoodie.datasource.hive_sync.database = 'default',
+    hoodie.datasource.hive_sync.table = 'variant_test',
+    hoodie.datasource.hive_sync.jdbcurl = 'jdbc:hive2://hiveserver:10000/',
+    hoodie.datasource.hive_sync.mode = 'hms',
+    hoodie.datasource.hive_sync.partition_fields = 'dt',
+    hoodie.datasource.hive_sync.partition_extractor_class = 'org.apache.hudi.hive.MultiPartKeysValueExtractor',
+    hoodie.datasource.hive_sync.username = 'hive',
+    hoodie.datasource.hive_sync.password = 'hive'
+  )
+""")
 
-// VARIANT is a struct with fields: metadata (binary), value (binary)
-val variantMetadata = new MetadataBuilder()
-  .putString("hudi_type", "VARIANT")
-  .build()
-
-val variantType = StructType(Seq(
-  StructField("metadata", BinaryType, nullable = false),
-  StructField("value", BinaryType, nullable = false)
-))
-
-val schema = StructType(Seq(
-  StructField("id", LongType, nullable = false),
-  StructField("name", StringType),
-  StructField("variant_data", variantType, nullable = false, metadata = variantMetadata),
-  StructField("dt", StringType)
-))
-
-// Create variant data (metadata + value as raw bytes)
-val data = Seq(
-  Row(1L, "row1", Row(Array[Byte](1, 0), """{"key":"value1"}""".getBytes), "2024-01-01"),
-  Row(2L, "row2", Row(Array[Byte](1, 0), """{"key":"value2"}""".getBytes), "2024-01-01")
-)
-val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-
-// Write as Hudi COW partitioned table with Hive sync enabled
-df.write.format("hudi")
-  .option("hoodie.table.name", "variant_test")
-  .option("hoodie.datasource.write.recordkey.field", "id")
-  .option("hoodie.datasource.write.precombine.field", "name")
-  .option("hoodie.datasource.write.partitionpath.field", "dt")
-  .option("hoodie.datasource.hive_sync.enable", "true")
-  .option("hoodie.datasource.hive_sync.database", "default")
-  .option("hoodie.datasource.hive_sync.table", "variant_test")
-  .option("hoodie.datasource.hive_sync.jdbcurl", "jdbc:hive2://hiveserver:10000/")
-  .option("hoodie.datasource.hive_sync.mode", "hms")
-  .option("hoodie.datasource.hive_sync.partition_fields", "dt")
-  .option("hoodie.datasource.hive_sync.partition_extractor_class",
-    "org.apache.hudi.hive.MultiPartKeysValueExtractor")
-  .option("hoodie.datasource.hive_sync.username", "hive")
-  .option("hoodie.datasource.hive_sync.password", "hive")
-  .mode(SaveMode.Overwrite)
-  .save("/user/hive/warehouse/variant_test")
+spark.sql("""
+  INSERT INTO variant_test VALUES
+    (1, 'row1', parse_json('{"key":"value1"}'), '2024-01-01'),
+    (2, 'row2', parse_json('{"key":"value2"}'), '2024-01-01')
+""")
 
 // Verify table is readable via Spark
-spark.sql("select id, name, dt from variant_test").show(10, false)
+spark.sql("select id, name, cast(variant_data as string), dt from variant_test").show(10, false)
 println("VARIANT_TEST_SUCCESS")
