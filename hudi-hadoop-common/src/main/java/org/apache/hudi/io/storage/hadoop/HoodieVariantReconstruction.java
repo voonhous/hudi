@@ -21,10 +21,12 @@ package org.apache.hudi.io.storage.hadoop;
 
 import org.apache.hudi.avro.VariantSchemaUtils;
 import org.apache.hudi.avro.VariantShreddingProvider;
+import org.apache.hudi.avro.VariantShreddingRuntime;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.exception.HoodieException;
@@ -105,10 +107,11 @@ final class HoodieVariantReconstruction {
       if (fileField.isPresent() && isShreddedVariant(fileField.get().schema())) {
         isTarget[i] = true;
         anyTarget = true;
-        // Read this column in its on-disk shredded shape.
-        intermediateFields.add(requestedField.withSchema(fileField.get().schema()));
+        // Read this column in its on-disk shredded shape. createNewSchemaField: the requested
+        // schema's avro fields are position-attached and cannot be reused in a new record.
+        intermediateFields.add(HoodieSchemaUtils.createNewSchemaField(requestedField.withSchema(fileField.get().schema())));
       } else {
-        intermediateFields.add(requestedField);
+        intermediateFields.add(HoodieSchemaUtils.createNewSchemaField(requestedField));
       }
     }
     if (!anyTarget) {
@@ -177,7 +180,7 @@ final class HoodieVariantReconstruction {
     String providerClass = storage.getConf()
         .getString(HoodieStorageConfig.PARQUET_VARIANT_SHREDDING_PROVIDER_CLASS.key()).orElse(null);
     if (providerClass == null || providerClass.isEmpty()) {
-      providerClass = VariantShreddingProvider.detectProviderClassOnClasspath();
+      providerClass = VariantShreddingRuntime.detectProviderClass().orElse(null);
     }
     return providerClass == null ? null : (VariantShreddingProvider) ReflectionUtils.loadClass(providerClass);
   }
