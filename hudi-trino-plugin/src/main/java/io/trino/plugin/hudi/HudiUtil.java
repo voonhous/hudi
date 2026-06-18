@@ -421,18 +421,6 @@ public final class HudiUtil
         }
     }
 
-    public static List<HiveColumnHandle> getOrderingColumnHandles(Table table, TypeManager typeManager, Lazy<HoodieTableMetaClient> lazyMetaClient, HiveTimestampPrecision timestampPrecision)
-    {
-        RecordMergeMode recordMergeMode = lazyMetaClient.get().getTableConfig().getRecordMergeMode();
-        if (recordMergeMode == null || recordMergeMode == RecordMergeMode.COMMIT_TIME_ORDERING) {
-            // if commit time ordering is enabled, return empty list
-            return Collections.emptyList();
-        }
-
-        List<String> orderingColumnNames = lazyMetaClient.get().getTableConfig().getOrderingFields();
-        return buildColumnHandles(table, typeManager, new LinkedHashSet<>(orderingColumnNames), timestampPrecision);
-    }
-
     /**
      * Returns the column handles that must be present in the read schema for the file group reader to merge
      * correctly: the ordering columns, plus the mandatory merge columns declared by a configured custom record
