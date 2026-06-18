@@ -81,6 +81,21 @@ public class TestHudiCustomMergerEndToEnd
         // Sanity check that the data actually distinguishes the custom merge from built-in newest-wins:
         // for many keys the winning record is not the most recently committed one.
         assertThat(writer.divergentKeyCount()).isGreaterThan(0);
+
+        // Regression check for projection pushdown: a query that does NOT project the merge column
+        // (merge_rank) must still merge correctly, because MaxRankRecordMerger declares merge_rank as a
+        // mandatory merge field, so the reader includes it in the read schema even though it is not selected.
+        // Without that, the merger would read a pruned (null) merge_rank and fail / mis-merge.
+        int s0Index = writer.dataColumnNames().indexOf("s0");
+        List<MaterializedRow> projectedRows = computeActual(
+                "SELECT key, s0 FROM " + RT_TABLE_NAME + " ORDER BY key").getMaterializedRows();
+        Map<String, Object[]> expected = writer.expectedRows();
+        assertThat(projectedRows).hasSize(expected.size());
+        for (MaterializedRow row : projectedRows) {
+            Object[] expectedRow = expected.get((String) row.getField(0));
+            assertThat(expectedRow).as("unexpected key %s", row.getField(0)).isNotNull();
+            assertThat(row.getField(1)).as("key %s, column s0", row.getField(0)).isEqualTo(expectedRow[s0Index]);
+        }
     }
 
     @Test

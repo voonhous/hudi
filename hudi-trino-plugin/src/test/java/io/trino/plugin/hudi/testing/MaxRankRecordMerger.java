@@ -18,9 +18,12 @@ import org.apache.hudi.common.engine.RecordContext;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordMerger;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.read.BufferedRecord;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 
 /**
  * Test-only custom {@link HoodieRecordMerger} that keeps, for each record key, the record with the largest value
@@ -66,6 +69,17 @@ public class MaxRankRecordMerger
         HoodieSchema schema = recordContext.getSchemaFromBufferRecord(record);
         Object value = recordContext.getValue(record.getRecord(), schema, RANK_COLUMN);
         return ((Number) value).longValue();
+    }
+
+    @Override
+    public String[] getMandatoryFieldsForMerging(HoodieSchema dataSchema, HoodieTableConfig cfg, TypedProperties properties)
+    {
+        // Declare merge_rank (read in merge()) as mandatory, on top of the default key/ordering fields, so the
+        // reader includes it in the read schema even when a query does not project it.
+        LinkedHashSet<String> fields = new LinkedHashSet<>(
+                Arrays.asList(HoodieRecordMerger.super.getMandatoryFieldsForMerging(dataSchema, cfg, properties)));
+        fields.add(RANK_COLUMN);
+        return fields.toArray(new String[0]);
     }
 
     @Override
