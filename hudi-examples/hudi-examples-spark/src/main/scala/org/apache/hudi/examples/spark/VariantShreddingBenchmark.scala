@@ -23,6 +23,7 @@ import org.apache.hudi.avro.VariantShreddingRuntime
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.parquet.schema.{GroupType, LogicalTypeAnnotation, Type}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.SaveMode.Overwrite
 import org.apache.spark.sql.functions._
@@ -155,6 +156,24 @@ object VariantShreddingBenchmark {
     if (!hudiShredded || !nativeShredded) {
       println("[WARN] a side did not shred (no typed_value); size/read numbers below are NOT a "
         + "valid shredding comparison.")
+    }
+
+    // ---- Variant column parquet schema: verify both sides shred the SAME column identically ----
+    val hudiVGroup = readVariantGroup(conf, hudiFiles.head, "v")
+    val nativeVGroup = readVariantGroup(conf, nativeFiles.head, "v")
+    println("\n-------------------- VARIANT COLUMN PARQUET SCHEMA --------------------")
+    println(s"[hudi]   ${hudiFiles.head}")
+    println(hudiVGroup.toString)
+    println(s"[native] ${nativeFiles.head}")
+    println(nativeVGroup.toString)
+    val schemaDiffs = scala.collection.mutable.ArrayBuffer[String]()
+    diffTypes("v", hudiVGroup, nativeVGroup, schemaDiffs)
+    println("-------------------- SCHEMA DIFF (hudi vs native) --------------------")
+    if (schemaDiffs.isEmpty) {
+      println("[match] hudi and native variant column schemas are identical")
+    } else {
+      println(s"[MISMATCH] ${schemaDiffs.size} difference(s) (path: hudi vs native):")
+      schemaDiffs.foreach(d => println("  - " + d))
     }
 
     // ---- SIZE + effectiveness ----
@@ -392,6 +411,54 @@ object VariantShreddingBenchmark {
       reader.close()
     }
   }
+
+  /** The variant column's parquet GroupType (metadata/value/typed_value...). */
+  private def readVariantGroup(conf: org.apache.hadoop.conf.Configuration, filePath: String,
+                               variantField: String): GroupType = {
+    val reader = ParquetFileReader.open(HadoopInputFile.fromPath(new Path(filePath), conf))
+    try {
+      val schema = reader.getFooter.getFileMetaData.getSchema
+      schema.getType(schema.getFieldIndex(variantField)).asGroupType()
+    } finally {
+      reader.close()
+    }
+  }
+
+  /**
+   * Records every difference between the hudi and native variant parquet types (recursively by
+   * field name): repetition, logical-type annotation (catches a missing VARIANT(1)), physical
+   * type and byte length (catches decimal int64 vs fixed_len_byte_array), and missing/extra fields.
+   */
+  private def diffTypes(path: String, hudi: Type, native: Type,
+                        diffs: scala.collection.mutable.ArrayBuffer[String]): Unit = {
+    if (hudi.getRepetition != native.getRepetition) {
+      diffs += s"$path: repetition ${hudi.getRepetition} vs ${native.getRepetition}"
+    }
+    if (hudi.getLogicalTypeAnnotation != native.getLogicalTypeAnnotation) {
+      diffs += s"$path: logical-type ${annot(hudi.getLogicalTypeAnnotation)} vs ${annot(native.getLogicalTypeAnnotation)}"
+    }
+    if (hudi.isPrimitive && native.isPrimitive) {
+      val ph = hudi.asPrimitiveType
+      val pn = native.asPrimitiveType
+      if (ph.getPrimitiveTypeName != pn.getPrimitiveTypeName) {
+        diffs += s"$path: physical-type ${ph.getPrimitiveTypeName} vs ${pn.getPrimitiveTypeName}"
+      } else if (ph.getTypeLength != pn.getTypeLength) {
+        diffs += s"$path: byte-length ${ph.getTypeLength} vs ${pn.getTypeLength}"
+      }
+    } else if (!hudi.isPrimitive && !native.isPrimitive) {
+      val gh = hudi.asGroupType
+      val gn = native.asGroupType
+      val hNames = gh.getFields.asScala.map(_.getName).toList
+      val nNames = gn.getFields.asScala.map(_.getName).toList
+      hNames.filterNot(nNames.contains).foreach(n => diffs += s"$path.$n: only in hudi")
+      nNames.filterNot(hNames.contains).foreach(n => diffs += s"$path.$n: only in native")
+      hNames.filter(nNames.contains).foreach(n => diffTypes(s"$path.$n", gh.getType(n), gn.getType(n), diffs))
+    } else {
+      diffs += s"$path: primitive-vs-group mismatch (hudi primitive=${hudi.isPrimitive})"
+    }
+  }
+
+  private def annot(l: LogicalTypeAnnotation): String = if (l == null) "none" else l.toString
 
   /** Sums compressed column-chunk bytes split into (typed_value, value+metadata) across files. */
   private def shreddingBytes(conf: org.apache.hadoop.conf.Configuration,
