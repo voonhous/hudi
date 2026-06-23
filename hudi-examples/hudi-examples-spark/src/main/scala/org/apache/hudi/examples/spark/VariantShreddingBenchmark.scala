@@ -186,13 +186,29 @@ object VariantShreddingBenchmark {
     // ---- READ phase: data already on disk from the last write iteration ----
     val readField = "f0" // first field is an int (see buildDataset)
     val filterK = (cardinality / 2).toString
+
+    // Plans: confirm both sides prune to v.typed_value.<field>, and compare the scan. Native should
+    // show a columnar parquet scan (a ColumnarToRow above FileScan parquet); Hudi shows a row-based
+    // FileScan HudiFileGroup with no ColumnarToRow (vectorization is force-disabled for the variant
+    // projection in HoodieFileGroupReaderBasedFileFormat.supportBatch).
+    println("\n-------------------- READ PLAN: variant_get projection (hudi) --------------------")
+    spark.read.format("hudi").load(hudiPath)
+      .select(expr(s"variant_get(v, '$$.$readField', 'int')").as("g")).agg(sum("g")).explain("formatted")
+    println("-------------------- READ PLAN: variant_get projection (native) --------------------")
+    spark.read.parquet(nativePath)
+      .select(expr(s"variant_get(v, '$$.$readField', 'int')").as("g")).agg(sum("g")).explain("formatted")
+
     Seq(
       ("read:hudi-full-reconstruct", () => readFull(spark.read.format("hudi").load(hudiPath))),
       ("read:native-full-reconstruct", () => readFull(spark.read.parquet(nativePath))),
       ("read:hudi-variant_get-proj", () => readProj(spark.read.format("hudi").load(hudiPath), readField)),
       ("read:native-variant_get-proj", () => readProj(spark.read.parquet(nativePath), readField)),
       ("read:hudi-variant_get-filter", () => readFilter(spark.read.format("hudi").load(hudiPath), readField, filterK)),
-      ("read:native-variant_get-filter", () => readFilter(spark.read.parquet(nativePath), readField, filterK))
+      ("read:native-variant_get-filter", () => readFilter(spark.read.parquet(nativePath), readField, filterK)),
+      // Control: project a non-variant top-level column. If Hudi is also ~15% slower here, the gap
+      // is general file-group-reader (row-based) overhead, not variant-specific.
+      ("read:hudi-plain-proj-ts", () => readPlain(spark.read.format("hudi").load(hudiPath))),
+      ("read:native-plain-proj-ts", () => readPlain(spark.read.parquet(nativePath)))
     ).foreach { case (name, body) => results += timeit(name, n, warmup, iters)(body) }
 
     // ---- REPORT ----
@@ -323,6 +339,11 @@ object VariantShreddingBenchmark {
 
   private def readFilter(df: DataFrame, field: String, k: String): Unit = {
     df.where(expr(s"variant_get(v, '$$.$field', 'int') > $k")).count()
+  }
+
+  /** Control: project only a non-variant top-level column to isolate variant-specific read cost. */
+  private def readPlain(df: DataFrame): Unit = {
+    df.agg(sum("ts")).collect()
   }
 
   // ----------------------------------------------------------------------------------------
