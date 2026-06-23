@@ -187,10 +187,10 @@ object VariantShreddingBenchmark {
     val readField = "f0" // first field is an int (see buildDataset)
     val filterK = (cardinality / 2).toString
 
-    // Plans: confirm both sides prune to v.typed_value.<field>, and compare the scan. Native should
-    // show a columnar parquet scan (a ColumnarToRow above FileScan parquet); Hudi shows a row-based
-    // FileScan HudiFileGroup with no ColumnarToRow (vectorization is force-disabled for the variant
-    // projection in HoodieFileGroupReaderBasedFileFormat.supportBatch).
+    // Plans: confirm both sides prune to the same subcolumn (ReadSchema struct<v:struct<0:int>>),
+    // and compare the scan. Native shows "Scan parquet ... Batched: true" (vectorized); Hudi shows
+    // "Scan HudiFileGroup ... Batched: false" (row-based, via the file-group reader; vectorization
+    // is a known TODO, apache/hudi#17736). Same ReadSchema => same I/O; the Batched flag is the gap.
     println("\n-------------------- READ PLAN: variant_get projection (hudi) --------------------")
     spark.read.format("hudi").load(hudiPath)
       .select(expr(s"variant_get(v, '$$.$readField', 'int')").as("g")).agg(sum("g")).explain("formatted")
