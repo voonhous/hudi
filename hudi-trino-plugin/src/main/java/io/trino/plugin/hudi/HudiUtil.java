@@ -91,7 +91,6 @@ import static io.trino.plugin.hive.util.HiveTypeUtil.getType;
 import static io.trino.plugin.hive.util.HiveTypeUtil.typeSupported;
 import static io.trino.plugin.hive.util.HiveUtil.checkCondition;
 import static io.trino.plugin.hive.util.HiveUtil.parsePartitionValue;
-import static org.apache.hudi.common.config.HoodieReaderConfig.RECORD_MERGE_IMPL_CLASSES_WRITE_CONFIG_KEY;
 import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMNS;
 import static io.trino.plugin.hive.util.SerdeConstants.LIST_COLUMN_TYPES;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_BAD_DATA;
@@ -100,6 +99,7 @@ import static io.trino.plugin.hudi.HudiErrorCode.HUDI_META_CLIENT_ERROR;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_SCHEMA_ERROR;
 import static io.trino.plugin.hudi.HudiErrorCode.HUDI_UNSUPPORTED_FILE_FORMAT;
 import static java.lang.Math.toIntExact;
+import static org.apache.hudi.common.config.HoodieReaderConfig.RECORD_MERGE_IMPL_CLASSES_WRITE_CONFIG_KEY;
 import static org.apache.hudi.common.model.HoodieRecord.PARTITION_PATH_METADATA_FIELD;
 import static org.apache.hudi.common.model.HoodieRecord.RECORD_KEY_METADATA_FIELD;
 
@@ -462,7 +462,7 @@ public final class HudiUtil
                     tableSchema = new TableSchemaResolver(metaClient).getTableSchema();
                 }
                 catch (Exception e) {
-                    throw new TrinoException(HUDI_FILESYSTEM_ERROR, e);
+                    throw new TrinoException(HUDI_SCHEMA_ERROR, "Failed to resolve table schema for merge column resolution", e);
                 }
                 String[] mandatoryFields = merger.get().getMandatoryFieldsForMerging(tableSchema, tableConfig, props);
                 if (mandatoryFields != null) {
