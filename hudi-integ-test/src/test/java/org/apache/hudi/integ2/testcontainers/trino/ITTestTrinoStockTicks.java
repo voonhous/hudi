@@ -44,6 +44,7 @@ public class ITTestTrinoStockTicks extends ITTestBaseTestcontainers {
 
   @BeforeAll
   public void setupOnce() throws Exception {
+    assumeTrinoProfile();
     initializeServices();
     waitForHdfs();
     sparkAdhoc1.executeShellCommand("/bin/bash " + Paths.DEMO_SETUP).expectToSucceed();

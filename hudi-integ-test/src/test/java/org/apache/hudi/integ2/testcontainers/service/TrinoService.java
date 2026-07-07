@@ -28,9 +28,10 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Service wrapper for the Trino coordinator. Mirrors {@link HiveService} in shape, but
  * execs the bundled {@code trino} CLI inside the coordinator container itself rather
- * than from an adhoc Spark container - Trino 472's CLI jar requires JDK 22+, which the
- * Spark 3.5 adhoc images (JDK 11) do not ship. The coordinator image bundles its own
- * JDK 23, so {@code execInContainer("trino", ...)} just works.
+ * than from an adhoc Spark container. The coordinator runs a hudi-built image based on
+ * {@code trinodb/trino:481}, which bundles a modern JDK; the adhoc Spark images do not,
+ * so {@code execInContainer("trino", ...)} on the coordinator is the reliable way to
+ * run Trino 481's CLI.
  *
  * <p>The default catalog is {@code hudi} (the native trino-hudi connector registered
  * by {@code HudiConnectorFactory#getName}) and the default schema is {@code default}.

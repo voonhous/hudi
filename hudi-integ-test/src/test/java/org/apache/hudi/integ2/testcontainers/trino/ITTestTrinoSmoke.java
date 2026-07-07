@@ -29,14 +29,15 @@ import org.junit.jupiter.api.TestInstance;
  * testcontainers harness. Cheapest signal that the plugin loaded, the metastore
  * is reachable, and the CLI can round-trip a query.
  *
- * <p>Skipped when {@code hudi-trino-plugin/target/trino-hudi-472} is absent (the
- * plugin module is outside the parent reactor).
+ * <p>Skipped unless the {@code trino} compose profile is active (see
+ * {@link #assumeTrinoProfile()}), since the coordinator container only starts then.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class ITTestTrinoSmoke extends ITTestBaseTestcontainers {
 
   @BeforeAll
   public void setupOnce() throws Exception {
+    assumeTrinoProfile();
     initializeServices();
     trino.waitUntilReady();
   }
