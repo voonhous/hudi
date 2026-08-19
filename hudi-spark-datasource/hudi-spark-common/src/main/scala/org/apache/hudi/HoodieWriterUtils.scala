@@ -181,6 +181,13 @@ object HoodieWriterUtils {
     ignoreConfig = ignoreConfig || (key.equals(PAYLOAD_CLASS_NAME.key()) && shouldIgnorePayloadValidation(value, tableConfig))
     // If hoodie.database.name is empty, ignore validation.
     ignoreConfig = ignoreConfig || (key.equals(HoodieTableConfig.DATABASE_NAME.key()) && isNullOrEmpty(getStringFromTableConfigWithAlternatives(tableConfig, key)))
+    // Once a table carries hoodie.meta.fields.mode, that mode is the source of truth and the deprecated
+    // hoodie.populate.meta.fields boolean is consulted only when the mode is absent. Tables on this
+    // release persist the derived boolean next to the mode for unpatched readers, so a writer that still
+    // states the legacy boolean must not trip a conflict against it; the mode comparison below and
+    // BaseHoodieWriteClient#validateAgainstTableProperties enforce agreement on the resolved mode.
+    ignoreConfig = ignoreConfig || (key.equals(HoodieTableConfig.POPULATE_META_FIELDS.key())
+      && tableConfig != null && tableConfig.contains(HoodieTableConfig.META_FIELDS_MODE))
     ignoreConfig
   }
 
