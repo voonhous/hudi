@@ -112,7 +112,7 @@ class TestBaseFileRecordParsingUtils {
 
       // the external file marker is not part of the file name on storage
       Map<BaseFileRecordParsingUtils.RecordStatus, List<String>> statuses = BaseFileRecordParsingUtils.getRecordKeyStatuses(
-          "/table", "partition", "latest.parquet_20240101000000_hudiext", null, storage, EnumSet.of(INSERT));
+          "/table", "partition", "latest.parquet_20240101000000_hudiext", null, storage, EnumSet.of(INSERT), true);
       assertEquals(Collections.singletonList(new StoragePath("/table/partition/latest.parquet")), readPaths);
       assertEquals(new HashSet<>(Arrays.asList("partition/latest.parquet_0", "partition/latest.parquet_1")), new HashSet<>(statuses.get(INSERT)));
 
@@ -122,7 +122,7 @@ class TestBaseFileRecordParsingUtils {
       externalWriteStat.setPath("partition/latest.parquet_20240101000000_hudiext");
       List<HoodieRecord> inserts = new ArrayList<>();
       BaseFileRecordParsingUtils.generateRLIMetadataHoodieRecordsForBaseFile(
-          "/table", externalWriteStat, 1, "20240101000000", storage, false).forEachRemaining(inserts::add);
+          "/table", externalWriteStat, 1, "20240101000000", storage, false, true).forEachRemaining(inserts::add);
       assertEquals(2, inserts.size());
       inserts.forEach(record -> assertEquals("latest.parquet",
           ((HoodieMetadataPayload) record.getData()).getRecordGlobalLocation().getFileId()));
@@ -130,7 +130,7 @@ class TestBaseFileRecordParsingUtils {
       // every record of a replaced base file is deleted
       List<HoodieRecord> deletes = new ArrayList<>();
       BaseFileRecordParsingUtils.generateRLIMetadataHoodieRecordsForReplacedBaseFile(
-          "/table", "partition", new StoragePath("/table/partition/latest.parquet"), storage, false).forEachRemaining(deletes::add);
+          "/table", "partition", new StoragePath("/table/partition/latest.parquet"), storage, false, true).forEachRemaining(deletes::add);
       assertEquals(2, deletes.size());
       assertTrue(deletes.stream().allMatch(record -> record.getData() instanceof EmptyHoodieRecordPayload));
       assertEquals(new HashSet<>(Arrays.asList("partition/latest.parquet_0", "partition/latest.parquet_1")),

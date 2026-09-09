@@ -894,6 +894,8 @@ public class HoodieTableMetadataUtil {
       Map<String, List<HoodieWriteStat>> writeStatsByFileId = allWriteStats.stream().collect(Collectors.groupingBy(HoodieWriteStat::getFileId));
       int parallelism = Math.max(Math.min(writeStatsByFileId.size(), metadataConfig.getRecordIndexMaxParallelism()), 1);
       String basePath = dataTableMetaClient.getBasePath().toString();
+      // a table without record keys, e.g. one that registers files written outside Hudi, keys every row by file path and position
+      boolean generateRecordKeys = !dataTableMetaClient.getTableConfig().hasRecordKey();
       HoodieFileFormat baseFileFormat = dataTableMetaClient.getTableConfig().getBaseFileFormat();
       StorageConfiguration storageConfiguration = dataTableMetaClient.getStorageConf();
       Option<HoodieSchema> writerSchemaOpt = tryResolveSchemaForTable(dataTableMetaClient);
@@ -921,7 +923,8 @@ public class HoodieTableMetadataUtil {
                   .flatMap(writeStat -> {
                     HoodieStorage storage = HoodieStorageUtils.getStorage(new StoragePath(writeStat.getPath()), storageConfiguration);
                     return CollectionUtils.toStream(BaseFileRecordParsingUtils
-                        .generateRLIMetadataHoodieRecordsForBaseFile(basePath, writeStat, writesFileIdEncoding, instantTime, storage, metadataConfig.isRecordLevelIndexEnabled()));
+                        .generateRLIMetadataHoodieRecordsForBaseFile(basePath, writeStat, writesFileIdEncoding, instantTime, storage,
+                            metadataConfig.isRecordLevelIndexEnabled(), generateRecordKeys));
                   })
                   .iterator();
             }
