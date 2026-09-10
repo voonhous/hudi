@@ -1499,6 +1499,7 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
 
   @Override
   public void completeStreamingCommit(String instantTime, HoodieEngineContext context, List<HoodieWriteStat> partialWriteStats, HoodieCommitMetadata metadata) {
+    checkClusteringKeepsRecordKeys(metadata);
     if (metadataMetaClient.getActiveTimeline().filterCompletedInstants().containsInstant(instantTime)) {
       LOG.info("Skipping streaming metadata commit completion for already completed instant {}", instantTime);
       getWriteClient().postCommit(instantTime);
@@ -1586,10 +1587,26 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
    */
   @Override
   public void update(HoodieCommitMetadata commitMetadata, String instantTime) {
+    checkClusteringKeepsRecordKeys(commitMetadata);
     mayBeReinitMetadataReader();
     maybeInitializeNewFileGroupsForPartitionedRLI(commitMetadata, instantTime);
     processAndCommit(instantTime, new BatchMetadataConversionFunction(instantTime, commitMetadata, getMetadataPartitionsToUpdate()));
     closeInternal();
+  }
+
+  /**
+   * Fails when a clustering commit reaches a table without record keys that has a record index or a secondary index.
+   * Those indexes key the rows of such a table by file path and row position, and clustering rewrites the rows into
+   * new files, so neither index could follow them. The check runs ahead of both the streaming and the batch update
+   * path, because the streaming path never reaches the indexers for these two partitions.
+   */
+  private void checkClusteringKeepsRecordKeys(HoodieCommitMetadata commitMetadata) {
+    if (commitMetadata.getOperationType() != WriteOperationType.CLUSTER || getStreamingMetadataPartitionsToUpdate().getLeft().isEmpty()) {
+      return;
+    }
+    ValidationUtils.checkState(dataMetaClient.getTableConfig().hasRecordKey(),
+        "Table " + dataMetaClient.getBasePath() + " cannot be clustered because it has no record key: the record index and the "
+            + "secondary index key its rows by file path and row position, which clustering changes");
   }
 
   /**
