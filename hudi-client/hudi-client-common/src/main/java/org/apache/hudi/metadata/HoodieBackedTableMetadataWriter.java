@@ -1761,10 +1761,11 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
     List<HoodieWriteStat> allWriteStats = commitMetadata.getPartitionToWriteStats().values().stream()
         .flatMap(Collection::stream).collect(Collectors.toList());
     // Return early if there are no write stats, or if this helper is reached for a table-service operation.
-    // A replace commit without a known operation type, e.g. one that only drops files written outside Hudi,
-    // has no write stats but still removes the records of the replaced file groups from the index.
+    // A replace commit without a known operation type on a table without a record key, e.g. one that only drops files
+    // written outside Hudi, has no write stats but still removes the records of the replaced file groups from the index.
     boolean dropsReplacedFileGroups = commitMetadata instanceof HoodieReplaceCommitMetadata
         && WriteOperationType.isUnknown(commitMetadata.getOperationType())
+        && !dataMetaClient.getTableConfig().hasRecordKey()
         && !((HoodieReplaceCommitMetadata) commitMetadata).getPartitionToReplaceFileIds().isEmpty();
     if ((allWriteStats.isEmpty() && !dropsReplacedFileGroups) || WriteOperationType.isCompactionOrClustering(commitMetadata.getOperationType())) {
       return engineContext.emptyHoodieData();
@@ -2470,14 +2471,13 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
     } else if (operationType == WriteOperationType.DELETE_PARTITION) {
       // all records from the target partition(s) to be deleted from RLI
       return getRecordIndexReplacedRecords((HoodieReplaceCommitMetadata) commitMetadata);
-    } else if (commitMetadata instanceof HoodieReplaceCommitMetadata && WriteOperationType.isUnknown(operationType)) {
+    } else if (commitMetadata instanceof HoodieReplaceCommitMetadata && WriteOperationType.isUnknown(operationType)
+        && !dataMetaClient.getTableConfig().hasRecordKey()) {
       // a replace commit without a known operation type registers files written outside Hudi. The replaced file groups
       // are dropped without their records being rewritten under the same key, so the records of the replaced base files
       // are deleted from RLI unless this commit wrote the same key again.
       HoodieReplaceCommitMetadata replaceCommitMetadata = (HoodieReplaceCommitMetadata) commitMetadata;
-      if (!dataMetaClient.getTableConfig().hasRecordKey()) {
-        checkReplacedFileGroupsAreNotWritten(replaceCommitMetadata);
-      }
+      checkReplacedFileGroupsAreNotWritten(replaceCommitMetadata);
       HoodiePairData<HoodieKey, HoodieRecord> replacedRecordsByKey = getRecordIndexReplacedFileGroupRecords(replaceCommitMetadata)
           .mapToPair(record -> Pair.of(record.getKey(), record));
       HoodiePairData<HoodieKey, HoodieRecord> writtenRecordsByKey = updatesFromWriteStatuses

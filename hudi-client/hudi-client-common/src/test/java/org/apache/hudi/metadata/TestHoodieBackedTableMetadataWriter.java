@@ -24,9 +24,12 @@ import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
+import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -68,6 +71,7 @@ import java.util.Properties;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
+import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorageConf;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -81,10 +85,12 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -165,6 +171,43 @@ class TestHoodieBackedTableMetadataWriter {
     writer.completeStreamingCommit("001", mock(HoodieEngineContext.class), Collections.emptyList(), clusteringMetadata);
 
     verify(writeClient).postCommit("001");
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true", "false"})
+  void dropsReplacedFileGroupsFromTheSecondaryIndexOnlyForKeylessTables(boolean hasRecordKey) throws Exception {
+    // a replace commit without a known operation type registers files written outside Hudi, and only a table without
+    // a record key holds such files. A table that carries a record key keeps the behaviour it had before, so the
+    // records of its replaced file groups stay in the index.
+    HoodieBackedTableMetadataWriter<List<HoodieRecord>, List<?>> writer = writerForClustering(hasRecordKey, true);
+    HoodieLocalEngineContext localEngineContext = new HoodieLocalEngineContext(getDefaultStorageConf());
+    Field engineContextField = HoodieBackedTableMetadataWriter.class.getDeclaredField("engineContext");
+    engineContextField.setAccessible(true);
+    engineContextField.set(writer, localEngineContext);
+    HoodieData<HoodieRecord> noRecords = localEngineContext.emptyHoodieData();
+    writer.dataWriteConfig = mock(HoodieWriteConfig.class, RETURNS_DEEP_STUBS);
+    doReturn(mock(HoodieIndexDefinition.class)).when(writer).getIndexDefinition("secondary_index_idx_name");
+
+    // the commit only drops the file groups it replaces, so it carries no write stats
+    HoodieReplaceCommitMetadata replaceCommitMetadata = new HoodieReplaceCommitMetadata();
+    replaceCommitMetadata.setOperationType(null);
+    replaceCommitMetadata.addReplaceFileId("p1", "file_1");
+
+    Method getSecondaryIndexUpdates = HoodieBackedTableMetadataWriter.class.getDeclaredMethod(
+        "getSecondaryIndexUpdates", HoodieCommitMetadata.class, String.class, String.class);
+    getSecondaryIndexUpdates.setAccessible(true);
+
+    try (MockedStatic<SecondaryIndexRecordGenerationUtils> generation = mockStatic(SecondaryIndexRecordGenerationUtils.class)) {
+      generation.when(() -> SecondaryIndexRecordGenerationUtils.convertWriteStatsToSecondaryIndexRecords(
+          any(), any(), any(), any(), any(), any(), any(), any())).thenReturn(noRecords);
+
+      HoodieData<HoodieRecord> updates = (HoodieData<HoodieRecord>) getSecondaryIndexUpdates.invoke(
+          writer, replaceCommitMetadata, "secondary_index_idx_name", "001");
+
+      assertTrue(updates.isEmpty());
+      generation.verify(() -> SecondaryIndexRecordGenerationUtils.convertWriteStatsToSecondaryIndexRecords(
+          any(), any(), any(), any(), any(), any(), any(), any()), hasRecordKey ? never() : times(1));
+    }
   }
 
   private static HoodieBackedTableMetadataWriter<List<HoodieRecord>, List<?>> writerForClustering(boolean hasRecordKey, boolean recordIndexEnabled)
