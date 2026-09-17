@@ -19,7 +19,6 @@ import com.google.inject.Module;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.Singleton;
-import io.trino.filesystem.cache.CacheKeyProvider;
 import io.trino.metastore.HiveMetastore;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.base.session.SessionPropertiesProvider;
@@ -28,7 +27,6 @@ import io.trino.plugin.hive.HiveNodePartitioningProvider;
 import io.trino.plugin.hive.HiveTransactionHandle;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.plugin.hive.parquet.ParquetWriterConfig;
-import io.trino.plugin.hudi.cache.HudiCacheKeyProvider;
 import io.trino.plugin.hudi.stats.ForHudiTableStatistics;
 import io.trino.spi.connector.ConnectorNodePartitioningProvider;
 import io.trino.spi.connector.ConnectorPageSourceProvider;
@@ -40,7 +38,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiFunction;
 
 import static com.google.inject.multibindings.Multibinder.newSetBinder;
-import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.airlift.bootstrap.ClosingBinder.closingBinder;
@@ -74,8 +71,6 @@ public class HudiModule
 
         binder.bind(FileFormatDataSourceStats.class).in(Scopes.SINGLETON);
         newExporter(binder).export(FileFormatDataSourceStats.class).withGeneratedName();
-
-        newOptionalBinder(binder, CacheKeyProvider.class).setBinding().to(HudiCacheKeyProvider.class).in(Scopes.SINGLETON);
 
         closingBinder(binder).registerExecutor(Key.get(ExecutorService.class, ForHudiTableStatistics.class));
         closingBinder(binder).registerExecutor(Key.get(ExecutorService.class, ForHudiSplitManager.class));
