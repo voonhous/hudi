@@ -45,6 +45,7 @@ RUN if [ ! -d /usr/lib/trino/plugin/hudi/hdfs ]; then \
 
 # Bake the Hudi E2E Trino config (coordinator, catalog, hadoop-conf) into the image.
 COPY --chown=trino:trino etc/ /etc/trino/
+RUN mkdir -p /tmp/trino-cache && chown trino:trino /tmp/trino-cache
 
 # Overlay-aware entrypoint: a bind-mounted plugin overlay (if present) replaces
 # the baked-in plugin at container start, otherwise the baked-in plugin is used.
