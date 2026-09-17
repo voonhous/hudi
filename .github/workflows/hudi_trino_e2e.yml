@@ -45,6 +45,10 @@ on:
       - '.github/workflows/hudi_trino_e2e.yml'
       - 'scripts/trino/**'
   workflow_dispatch:
+    inputs:
+      trino_ref:
+        description: 'DNM ghost run: trinodb/trino ref for the server image and plugin assembly'
+        default: master
 
 concurrency:
   group: hudi-trino-e2e-${{ github.ref }}
@@ -122,6 +126,12 @@ jobs:
       - name: Purge Trino artifacts from the local m2
         # Artifacts an older pin left behind carry the same SNAPSHOT coordinates as the current ones.
         run: rm -rf ~/.m2/repository/io/trino
+      # DNM ghost run: the connector compiles against the release's Trino pin (a released
+      # Trino from Central), exactly as the RC ships it. Everything after this step runs at
+      # Trino head.
+      - name: Build hudi-trino connector against the release pin (JDK 25)
+        run:
+          mvn $MVN_ARGS -Phudi-trino -pl hudi-trino install -Dmaven.test.skip=true
       # The connector and the shim assembly resolve io.trino from the pinned trinodb/trino
       # commit: Trino publishes no SNAPSHOT artifacts, so nothing here comes from Central.
       # Not cached, for the same reason as the server image below.
@@ -129,23 +139,36 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: trinodb/trino
-          ref: ${{ steps.trino-pin.outputs.trino_sha }}
+          ref: ${{ inputs.trino_ref || 'master' }}
           path: trino-src
+      - name: Point the pin at Trino head (DNM ghost run)
+        id: trino-head
+        # bootstrap_trino.sh and build_trino_server_image.sh read the pin from the root pom,
+        # so rewrite it in the workspace (the connector is already built); the shim's parent
+        # must match the server it is assembled for.
+        run: |
+          set -euo pipefail
+          HEAD_SHA=$(git -C trino-src rev-parse HEAD)
+          HEAD_VERSION=$(trino-src/mvnw -q -N -f trino-src/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
+          echo "Connector built at ${{ steps.trino-pin.outputs.trino_version }}; server and plugin at $HEAD_VERSION ($HEAD_SHA)"
+          sed -i "s|<trino.sha>.*</trino.sha>|<trino.sha>$HEAD_SHA</trino.sha>|; s|<trino.version>.*</trino.version>|<trino.version>$HEAD_VERSION</trino.version>|" pom.xml
+          sed -i "0,/<version>${{ steps.trino-pin.outputs.trino_version }}<\/version>/s||<version>$HEAD_VERSION</version>|" docker/trino/shim/pom.xml
+          grep -nE '<trino\.(sha|version)>' pom.xml
+          grep -n -m1 -B2 "<version>$HEAD_VERSION</version>" docker/trino/shim/pom.xml
+          echo "trino_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "trino_version=$HEAD_VERSION" >> "$GITHUB_OUTPUT"
       - name: Build Trino artifacts from source (JDK 25)
         run: scripts/trino/bootstrap_trino.sh trino-src --skip-checkout
       # Built on every run, from the same commit as the connector. Not cached: the scheduled
       # workflow's delete-all-caches job removes Actions caches before a later run can restore them.
       - name: Build the Trino server image from the pinned commit (JDK 25)
         env:
-          TRINO_SHA: ${{ steps.trino-pin.outputs.trino_sha }}
+          TRINO_SHA: ${{ steps.trino-head.outputs.trino_sha }}
         run: docker/trino/build_trino_server_image.sh trino-src --image "hudi-trino-server:${TRINO_SHA}" --arch amd64
       - name: Free the Trino build tree
         # The server image is in the local docker store and io.trino is in the m2 by now;
         # reclaim the disk before the connector build and the compose stack.
         run: rm -rf trino-src
-      - name: Build hudi-trino connector (JDK 25)
-        run:
-          mvn $MVN_ARGS -Phudi-trino -pl hudi-trino install -Dmaven.test.skip=true
       - name: Assemble trino-hudi plugin dir via in-repo shim (JDK 25)
         # package, NOT install: installing would shadow the real
         # io.trino:trino-hudi release coordinates in the local m2 (the shim pom
@@ -162,8 +185,8 @@ jobs:
         # The plugin dir is named after trino.version; the server underneath is the image built
         # from the same pinned commit above.
         env:
-          TRINO_VERSION: ${{ steps.trino-pin.outputs.trino_version }}
-          TRINO_SHA: ${{ steps.trino-pin.outputs.trino_sha }}
+          TRINO_VERSION: ${{ steps.trino-head.outputs.trino_version }}
+          TRINO_SHA: ${{ steps.trino-head.outputs.trino_sha }}
         run: |
           PLUGIN_DIR="docker/trino/shim/target/trino-hudi-${TRINO_VERSION}"
           # trino-maven-plugin 24 emits only the zip; explode it into the plugin dir layout.
@@ -173,6 +196,10 @@ jobs:
           # service descriptor jar, or Trino cannot load the plugin at boot.
           echo "plugin dir jar count: $(ls "$PLUGIN_DIR" | wc -l)"
           ls "$PLUGIN_DIR"/*services*.jar
+      - name: Restore the release pin in the workspace (DNM ghost run)
+        # The head pin was only for the Trino build, server image and shim; the ITs resolve
+        # against the release branch's own poms.
+        run: git checkout -- pom.xml docker/trino/shim/pom.xml
       - name: Smoke-boot the Trino image standalone
         # Catches image-level boot failures (plugin load errors, bad etc/ config)
         # ~30 min before the IT step would, with the full boot log on screen.
