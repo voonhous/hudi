@@ -18,8 +18,8 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 /**
  * An expression that returns a Boolean value.
@@ -27,8 +27,8 @@ import org.apache.hudi.common.schema.internal.Types;
 public interface Predicate extends Expression {
 
   @Override
-  default Type getDataType() {
-    return Types.BooleanType.get();
+  default HoodieSchema getDataType() {
+    return HoodieSchema.create(HoodieSchemaType.BOOLEAN);
   }
 
   Operator getOperator();

@@ -18,26 +18,30 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
+import org.apache.hudi.common.schema.HoodieSchema;
 
 public class BoundReference extends LeafExpression {
 
   private final int ordinal;
-  private final Type type;
+  private final HoodieSchema type;
 
-  public BoundReference(int ordinal, Type type) {
+  /**
+   * @param ordinal position of the referenced value in the {@link StructLike} the expression is evaluated on
+   * @param type    non-nullable leaf type of the referenced value
+   */
+  public BoundReference(int ordinal, HoodieSchema type) {
     this.ordinal = ordinal;
     this.type = type;
   }
 
   @Override
-  public Type getDataType() {
+  public HoodieSchema getDataType() {
     return type;
   }
 
   @Override
   public Object eval(StructLike data) {
-    return data.get(ordinal, this.type.typeId().getClassTag());
+    return data.get(ordinal, ExpressionTypes.classTag(type));
   }
 
   @Override
@@ -48,6 +52,6 @@ public class BoundReference extends LeafExpression {
   @Override
   public String toString() {
     return "boundReference[ordinal: " + ordinal + ", type: "
-        + type.typeId().getName() + "]";
+        + ExpressionTypes.typeName(type) + "]";
   }
 }

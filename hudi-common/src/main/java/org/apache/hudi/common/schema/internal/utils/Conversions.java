@@ -18,11 +18,16 @@
 
 package org.apache.hudi.common.schema.internal.utils;
 
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.internal.Type;
 import org.apache.hudi.common.schema.internal.Types;
 
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.Set;
 
 public class Conversions {
 
@@ -38,6 +43,34 @@ public class Conversions {
           Type.TypeID.UUID,
           Type.TypeID.DATE,
           Type.TypeID.STRING));
+
+  // The HoodieSchema types of SUPPORTED_PARTITION_TYPES: DECIMAL covers the three decimal type ids, and
+  // ENUM is read as STRING, as InternalSchemaConverter maps it.
+  private static final Set<HoodieSchemaType> SUPPORTED_PARTITION_SCHEMA_TYPES = EnumSet.of(
+      HoodieSchemaType.INT,
+      HoodieSchemaType.LONG,
+      HoodieSchemaType.BOOLEAN,
+      HoodieSchemaType.FLOAT,
+      HoodieSchemaType.DECIMAL,
+      HoodieSchemaType.DOUBLE,
+      HoodieSchemaType.UUID,
+      HoodieSchemaType.DATE,
+      HoodieSchemaType.STRING,
+      HoodieSchemaType.ENUM);
+
+  /**
+   * Whether every partition value of the given partition record schema can be parsed from a partition
+   * path, judged on each field's non-null type.
+   */
+  public static boolean isPartitionSchemaSupportedConversion(HoodieSchema schema) {
+    for (HoodieSchemaField field : schema.getFields()) {
+      if (!SUPPORTED_PARTITION_SCHEMA_TYPES.contains(field.getNonNullSchema().getType())) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 
   public static boolean isPartitionSchemaSupportedConversion(Types.RecordType schema) {
     for (Types.Field field: schema.fields()) {

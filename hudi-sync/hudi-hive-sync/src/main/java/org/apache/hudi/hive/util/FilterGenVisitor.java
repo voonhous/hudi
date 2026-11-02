@@ -25,7 +25,7 @@ import org.apache.hudi.common.expression.Literal;
 import org.apache.hudi.common.expression.NameReference;
 import org.apache.hudi.common.expression.Predicate;
 import org.apache.hudi.common.expression.Predicates;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 public class FilterGenVisitor implements ExpressionVisitor<String> {
 
@@ -105,12 +105,16 @@ public class FilterGenVisitor implements ExpressionVisitor<String> {
 
   @Override
   public String visitLiteral(Literal literalExpr) {
-    if (literalExpr.getDataType() instanceof Types.StringType) {
+    if (literalExpr.getDataType() == null) {
+      return "";
+    }
+
+    HoodieSchemaType type = literalExpr.getDataType().getType();
+    if (type == HoodieSchemaType.STRING) {
       return quoteStringLiteral(((Literal<String>)literalExpr).getValue());
     }
 
-    if (literalExpr.getDataType() instanceof Types.IntType || literalExpr.getDataType() instanceof Types.LongType
-        || literalExpr.getDataType() instanceof Types.DateType) {
+    if (type == HoodieSchemaType.INT || type == HoodieSchemaType.LONG || type == HoodieSchemaType.DATE) {
       return literalExpr.getValue().toString();
     }
 

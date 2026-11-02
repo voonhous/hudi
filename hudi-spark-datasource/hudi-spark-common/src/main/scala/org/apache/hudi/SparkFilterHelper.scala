@@ -20,7 +20,7 @@
 package org.apache.hudi
 
 import org.apache.hudi.common.expression.{Expression, Literal, NameReference, Predicates}
-import org.apache.hudi.common.schema.internal.{Type, Types}
+import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaField, HoodieSchemaType}
 
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.sources._
@@ -81,43 +81,53 @@ object SparkFilterHelper {
   def toLiteral(value: Any): Literal[_] = {
     value match {
       case timestamp : Timestamp =>
-        new Literal(DateTimeUtils.fromJavaTimestamp(timestamp), Types.TimestampType.get())
+        new Literal(DateTimeUtils.fromJavaTimestamp(timestamp), HoodieSchema.createTimestampMicros())
       case date: Date =>
-        new Literal(DateTimeUtils.fromJavaDate(date), Types.DateType.get())
+        new Literal(DateTimeUtils.fromJavaDate(date), HoodieSchema.createDate())
       case instant: Instant =>
-        new Literal(DateTimeUtils.instantToMicros(instant), Types.TimestampType.get())
+        new Literal(DateTimeUtils.instantToMicros(instant), HoodieSchema.createTimestampMicros())
       case localDate: LocalDate =>
-        new Literal(Math.toIntExact(localDate.toEpochDay), Types.TimestampType.get())
+        // RFC-88 bug list: a LocalDate holds epoch days but is typed as a timestamp-micros literal; it
+        // should be typed as a date, like java.sql.Date above.
+        new Literal(Math.toIntExact(localDate.toEpochDay), HoodieSchema.createTimestampMicros())
       case _ =>
         Literal.from(value)
     }
   }
 
-  def convertDataType(sparkType: DataType): Type = sparkType match {
+  /**
+   * Converts a Spark type into the [[HoodieSchema]] Hudi expressions are typed and bound with. A
+   * [[StructType]] becomes a record whose fields keep their positions, nullable fields become nullable
+   * unions; only the types below are supported.
+   */
+  def convertDataType(sparkType: DataType): HoodieSchema = convertDataType(sparkType, "record")
+
+  private def convertDataType(sparkType: DataType, recordName: String): HoodieSchema = sparkType match {
     case StructType(fields) =>
-      val convertedFields = fields.zipWithIndex.map {
-        case (field, idx) =>
-          Types.Field.get(idx, field.nullable, field.name, convertDataType(field.dataType), field.getComment().orNull)
+      val convertedFields = fields.map { field =>
+        val fieldSchema = convertDataType(field.dataType, s"${recordName}_${field.name}")
+        HoodieSchemaField.of(field.name, if (field.nullable) HoodieSchema.createNullable(fieldSchema) else fieldSchema,
+          field.getComment().orNull, null)
       }.toList.asJava
-      Types.RecordType.get(convertedFields)
+      HoodieSchema.createRecord(recordName, null, null, convertedFields)
     case BooleanType =>
-      Types.BooleanType.get()
+      HoodieSchema.create(HoodieSchemaType.BOOLEAN)
     case IntegerType | ShortType | ByteType =>
-      Types.IntType.get()
+      HoodieSchema.create(HoodieSchemaType.INT)
     case LongType =>
-      Types.LongType.get()
+      HoodieSchema.create(HoodieSchemaType.LONG)
     case FloatType =>
-      Types.FloatType.get()
+      HoodieSchema.create(HoodieSchemaType.FLOAT)
     case DoubleType =>
-      Types.DoubleType.get()
+      HoodieSchema.create(HoodieSchemaType.DOUBLE)
     case StringType | (_: CharType) | (_: VarcharType) =>
-      Types.StringType.get()
+      HoodieSchema.create(HoodieSchemaType.STRING)
     case DateType =>
-      Types.DateType.get()
+      HoodieSchema.createDate()
     case TimestampType =>
-      Types.TimestampType.get()
+      HoodieSchema.createTimestampMicros()
     case _type: DecimalType =>
-      Types.DecimalType.get(_type.precision, _type.scale)
+      HoodieSchema.createDecimal(_type.precision, _type.scale)
     case _ =>
       throw new UnsupportedOperationException(s"Cannot convert spark type $sparkType to the relate HUDI type")
   }

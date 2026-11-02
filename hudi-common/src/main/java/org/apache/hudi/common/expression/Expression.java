@@ -18,7 +18,7 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
+import org.apache.hudi.common.schema.HoodieSchema;
 
 import java.io.Serializable;
 import java.util.List;
@@ -53,7 +53,11 @@ public interface Expression extends Serializable {
 
   List<Expression> getChildren();
 
-  Type getDataType();
+  /**
+   * Returns the type of the value this expression evaluates to: a non-nullable leaf type for literals and
+   * references, and BOOLEAN for predicates.
+   */
+  HoodieSchema getDataType();
 
   default Object eval(StructLike data) {
     throw new UnsupportedOperationException("Cannot evaluate expression " + this);

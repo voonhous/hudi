@@ -32,7 +32,9 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Option;
@@ -110,7 +112,7 @@ public class FileSystemBackedTableMetadata extends AbstractHoodieTableMetadata {
 
   @Override
   public List<String> getPartitionPathWithPathPrefixUsingFilterExpression(List<String> relativePathPrefixes,
-                                                                          Types.RecordType partitionFields,
+                                                                          HoodieSchema partitionFields,
                                                                           Expression expression) throws IOException {
     return relativePathPrefixes.stream().flatMap(relativePathPrefix -> {
       try {
@@ -138,7 +140,7 @@ public class FileSystemBackedTableMetadata extends AbstractHoodieTableMetadata {
   }
 
   protected List<String> getPartitionPathWithPathPrefixUsingFilterExpression(String relativePathPrefix,
-                                                                             Types.RecordType partitionFields,
+                                                                             HoodieSchema partitionFields,
                                                                              Expression pushedExpr) throws IOException {
     List<StoragePath> pathsToList = new CopyOnWriteArrayList<>();
     pathsToList.add(StringUtils.isNullOrEmpty(relativePathPrefix)
@@ -240,7 +242,10 @@ public class FileSystemBackedTableMetadata extends AbstractHoodieTableMetadata {
           // currentSchema would be <region, date>
           // `PartialBindVisitor` will bind reference if it can be found from `currentSchema`, otherwise
           // will change the expression to `alwaysTrue`. Can see `PartialBindVisitor` for details.
-          Types.RecordType currentSchema = Types.RecordType.get(partitionFields.fields().subList(0, ++currentPartitionLevel));
+          List<HoodieSchemaField> currentFields = partitionFields.getFields().subList(0, ++currentPartitionLevel).stream()
+              .map(HoodieSchemaUtils::createNewSchemaField)
+              .collect(Collectors.toList());
+          HoodieSchema currentSchema = HoodieSchemaUtils.createNewSchemaFromFieldsWithReference(partitionFields, currentFields);
           PartialBindVisitor partialBindVisitor = new PartialBindVisitor(currentSchema, caseSensitive);
           partialBoundExpr = pushedExpr.accept(partialBindVisitor);
         } else {

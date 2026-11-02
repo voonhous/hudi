@@ -18,7 +18,9 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,15 +35,15 @@ import java.util.Collections;
  */
 public class TestBindVisitor {
 
-  private static Types.RecordType schema;
+  private static HoodieSchema schema;
 
   @BeforeAll
   public static void init() {
-    ArrayList<Types.Field> fields = new ArrayList<>(3);
-    fields.add(Types.Field.get(0, true, "a", Types.StringType.get()));
-    fields.add(Types.Field.get(1, true, "c", Types.IntType.get()));
-    fields.add(Types.Field.get(2, true, "d", Types.LongType.get()));
-    schema = Types.RecordType.get(fields, "schema");
+    ArrayList<HoodieSchemaField> fields = new ArrayList<>(3);
+    fields.add(HoodieSchemaField.of("a", HoodieSchema.createNullable(HoodieSchemaType.STRING)));
+    fields.add(HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchemaType.INT)));
+    fields.add(HoodieSchemaField.of("d", HoodieSchema.createNullable(HoodieSchemaType.LONG)));
+    schema = HoodieSchema.createRecord("schema", null, null, fields);
   }
 
   @Test
@@ -50,7 +52,18 @@ public class TestBindVisitor {
     Expression bound = new NameReference("a").accept(bindVisitor);
 
     Assertions.assertTrue(bound instanceof BoundReference);
-    Assertions.assertEquals(Types.StringType.get(), bound.getDataType());
+    Assertions.assertEquals(HoodieSchema.create(HoodieSchemaType.STRING), bound.getDataType());
+  }
+
+  @Test
+  public void testVisitNameReferenceBindsFieldPositionAndNonNullType() {
+    BindVisitor bindVisitor = new BindVisitor(schema, false);
+    Expression bound = new NameReference("D").accept(bindVisitor);
+
+    // The fields are nullable unions; the reference is typed with the non-null branch, at the field's position.
+    Assertions.assertEquals(HoodieSchema.create(HoodieSchemaType.LONG), bound.getDataType());
+    Assertions.assertEquals("boundReference[ordinal: 2, type: long]", bound.toString());
+    Assertions.assertEquals(5L, bound.eval(new ArrayData(Arrays.asList("Jane", 15, 5L))));
   }
 
   @Test
@@ -90,7 +103,7 @@ public class TestBindVisitor {
   @Test
   public void testVisitBoundReferenceReturnsSameInstance() {
     BindVisitor bindVisitor = new BindVisitor(schema, true);
-    BoundReference boundReference = new BoundReference(0, Types.StringType.get());
+    BoundReference boundReference = new BoundReference(0, HoodieSchema.create(HoodieSchemaType.STRING));
 
     Assertions.assertSame(boundReference, boundReference.accept(bindVisitor));
   }

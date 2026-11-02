@@ -21,7 +21,7 @@ package org.apache.hudi.metadata
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.engine.HoodieEngineContext
 import org.apache.hudi.common.fs.FSUtils
-import org.apache.hudi.common.schema.internal.Types
+import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.util.StringUtils
 import org.apache.hudi.storage.{HoodieStorage, StoragePath}
@@ -89,7 +89,7 @@ class CatalogBackedTableMetadata(engineContext: HoodieEngineContext,
     }
 
   override def getPartitionPathWithPathPrefixUsingFilterExpression(relativePathPrefix: util.List[String],
-                                                                   partitionFields: Types.RecordType,
+                                                                   partitionFields: HoodieSchema,
                                                                    pushedExpr: org.apache.hudi.common.expression.Expression,
                                                                    partitionPredicateExpressions: util.List[Object]):
   util.List[String] = {

@@ -19,7 +19,9 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.junit.jupiter.api.Test;
 
@@ -133,13 +135,13 @@ class TestPredicates {
 
   @Test
   void testAndEvalWithNullLeftIsFalse() {
-    Literal<Boolean> nullBool = new Literal<>(null, Types.BooleanType.get());
+    Literal<Boolean> nullBool = new Literal<>(null, HoodieSchema.create(HoodieSchemaType.BOOLEAN));
     assertFalse(Predicates.and(nullBool, Literal.from(true)).eval(null));
   }
 
   @Test
   void testAndEvalWithNullRightIsFalse() {
-    Literal<Boolean> nullBool = new Literal<>(null, Types.BooleanType.get());
+    Literal<Boolean> nullBool = new Literal<>(null, HoodieSchema.create(HoodieSchemaType.BOOLEAN));
     assertFalse(Predicates.and(Literal.from(true), nullBool).eval(null));
   }
 
@@ -161,13 +163,13 @@ class TestPredicates {
 
   @Test
   void testOrEvalWithNullLeftIsFalseEvenIfRightIsTrue() {
-    Literal<Boolean> nullBool = new Literal<>(null, Types.BooleanType.get());
+    Literal<Boolean> nullBool = new Literal<>(null, HoodieSchema.create(HoodieSchemaType.BOOLEAN));
     assertFalse(Predicates.or(nullBool, Literal.from(true)).eval(null));
   }
 
   @Test
   void testOrEvalWithFalseLeftAndNullRightIsFalse() {
-    Literal<Boolean> nullBool = new Literal<>(null, Types.BooleanType.get());
+    Literal<Boolean> nullBool = new Literal<>(null, HoodieSchema.create(HoodieSchemaType.BOOLEAN));
     assertFalse(Predicates.or(Literal.from(false), nullBool).eval(null));
   }
 
@@ -190,7 +192,7 @@ class TestPredicates {
 
   @Test
   void testIsNullEvalTrueForNullValue() {
-    Literal<String> nullValue = new Literal<>(null, Types.StringType.get());
+    Literal<String> nullValue = new Literal<>(null, HoodieSchema.create(HoodieSchemaType.STRING));
     assertTrue(Predicates.isNull(nullValue).eval(null));
   }
 
@@ -201,7 +203,7 @@ class TestPredicates {
 
   @Test
   void testIsNotNullEvalFalseForNullValue() {
-    Literal<String> nullValue = new Literal<>(null, Types.StringType.get());
+    Literal<String> nullValue = new Literal<>(null, HoodieSchema.create(HoodieSchemaType.STRING));
     assertFalse(Predicates.isNotNull(nullValue).eval(null));
   }
 
@@ -270,9 +272,9 @@ class TestPredicates {
 
   @Test
   void testBinaryComparisonThrowsForNestedLeftType() {
-    ArrayList<Types.Field> fields = new ArrayList<>();
-    fields.add(Types.Field.get(0, true, "a", Types.StringType.get()));
-    Types.RecordType nestedType = Types.RecordType.get(fields, "nested");
+    ArrayList<HoodieSchemaField> fields = new ArrayList<>();
+    fields.add(HoodieSchemaField.of("a", HoodieSchema.createNullable(HoodieSchemaType.STRING)));
+    HoodieSchema nestedType = HoodieSchema.createRecord("nested", null, null, fields);
     BoundReference nestedRef = new BoundReference(0, nestedType);
 
     Predicates.BinaryComparison comparison = Predicates.eq(nestedRef, Literal.from("value"));

@@ -32,7 +32,9 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieRecord;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.read.HoodieFileGroupReader;
@@ -350,7 +352,8 @@ public class TestHoodieBackedTableMetadataDataCleanup {
         .thenCallRealMethod();
 
     assertEquals(selectedPartitions, mockMetadata.getPartitionPathWithPathPrefixUsingFilterExpression(
-        Collections.singletonList("year="), mock(Types.RecordType.class), expression));
+        Collections.singletonList("year="), HoodieSchema.createRecord("partition", null, null,
+            Collections.singletonList(HoodieSchemaField.of("year", HoodieSchema.create(HoodieSchemaType.INT)))), expression));
 
     Field partitionedMapField =
         HoodieBackedTableMetadata.class.getDeclaredField("partitionedRLIFileSliceMap");

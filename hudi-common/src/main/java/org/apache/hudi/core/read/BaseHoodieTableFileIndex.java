@@ -30,7 +30,7 @@ import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieTableQueryType;
 import org.apache.hudi.common.model.HoodieTableType;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.serialization.HoodieFileSliceSerializer;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.HoodieTableVersion;
@@ -378,7 +378,7 @@ public abstract class BaseHoodieTableFileIndex implements AutoCloseable {
   }
 
   protected List<PartitionPath> listPartitionPaths(List<String> relativePartitionPaths,
-                                                   Types.RecordType partitionFields,
+                                                   HoodieSchema partitionFields,
                                                    Expression partitionColumnPredicates,
                                                    List<Object> partitionPredicateExpressions) {
     List<String> matchedPartitionPaths;

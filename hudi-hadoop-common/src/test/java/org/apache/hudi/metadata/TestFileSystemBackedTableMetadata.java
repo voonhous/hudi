@@ -20,7 +20,15 @@ package org.apache.hudi.metadata;
 
 import org.apache.hudi.common.data.HoodieListData;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
+import org.apache.hudi.common.expression.Expression;
+import org.apache.hudi.common.expression.Literal;
+import org.apache.hudi.common.expression.NameReference;
+import org.apache.hudi.common.expression.Predicates;
 import org.apache.hudi.common.model.HoodiePartitionMetadata;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.util.HoodieStorageUtils;
@@ -303,6 +311,43 @@ public class TestFileSystemBackedTableMetadata extends HoodieCommonTestHarness {
     for (String p : fullPartitionPaths) {
       Assertions.assertEquals(0, partitionToFilesMap.get(p).size());
     }
+  }
+
+  @Test
+  public void testPartitionPruningWithFilterExpression() throws Exception {
+    List<String> partitions = Arrays.asList("region=us/hh=1", "region=us/hh=2", "region=eu/hh=1", "region=eu/hh=3");
+    hoodieTestTable = hoodieTestTable.addCommit("100");
+    for (String p : partitions) {
+      hoodieTestTable = hoodieTestTable.withPartitionMetaFiles(p).withBaseFilesInPartition(p, 0);
+    }
+    metaClient.getTableConfig().setValue(HoodieTableConfig.HIVE_STYLE_PARTITIONING_ENABLE, "true");
+    metaClient.getTableConfig().setValue(HoodieTableConfig.URL_ENCODE_PARTITIONING, "true");
+    FileSystemBackedTableMetadata metadata = new FileSystemBackedTableMetadata(
+        new HoodieLocalEngineContext(metaClient.getStorageConf()), metaClient.getTableConfig(), metaClient.getStorage(), basePath);
+    HoodieSchema partitionFields = HoodieSchema.createRecord("partition", null, null, Arrays.asList(
+        HoodieSchemaField.of("region", HoodieSchema.createNullable(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("hh", HoodieSchema.createNullable(HoodieSchemaType.INT))));
+
+    // Only the second level is constrained: the first level is listed unpruned, then the full filter applies.
+    assertEquals(Arrays.asList("region=eu/hh=1", "region=us/hh=1"),
+        prune(metadata, partitionFields, Predicates.eq(new NameReference("hh"), Literal.from(1))));
+    // The first level is pruned by the partially bound filter; names bind case-insensitively.
+    assertEquals(Collections.singletonList("region=eu/hh=3"),
+        prune(metadata, partitionFields, Predicates.and(
+            Predicates.eq(new NameReference("REGION"), Literal.from("eu")),
+            Predicates.gt(new NameReference("hh"), Literal.from(1)))));
+    assertEquals(Arrays.asList("region=us/hh=1", "region=us/hh=2"),
+        prune(metadata, partitionFields, Predicates.startsWith(new NameReference("region"), Literal.from("u"))));
+    // RFC-88 bug list: PartialBindVisitor turns NOT(hh = 1) into NOT(TRUE) = FALSE at the first level, so
+    // region=us/hh=2 and region=eu/hh=3, which match, are pruned too.
+    assertEquals(Collections.emptyList(),
+        prune(metadata, partitionFields, Predicates.not(Predicates.eq(new NameReference("hh"), Literal.from(1)))));
+  }
+
+  private static List<String> prune(FileSystemBackedTableMetadata metadata, HoodieSchema partitionFields, Expression filter)
+      throws IOException {
+    return metadata.getPartitionPathWithPathPrefixUsingFilterExpression(Collections.singletonList(""), partitionFields, filter)
+        .stream().sorted().collect(Collectors.toList());
   }
 
   @Test

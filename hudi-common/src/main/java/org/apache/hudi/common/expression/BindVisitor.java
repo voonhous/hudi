@@ -18,19 +18,57 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
+/**
+ * Binds the {@link NameReference}s of an expression to the fields of a record schema: each becomes a
+ * {@link BoundReference} to the field's position, typed with the field's non-null schema.
+ */
 public class BindVisitor implements ExpressionVisitor<Expression>  {
 
-  protected final Types.RecordType recordType;
+  protected final HoodieSchema recordSchema;
   protected final boolean caseSensitive;
 
-  public BindVisitor(Types.RecordType recordType, boolean caseSensitive) {
-    this.recordType = recordType;
+  private Map<String, HoodieSchemaField> nameToFields;
+  private Map<String, HoodieSchemaField> lowercaseNameToFields;
+
+  public BindVisitor(HoodieSchema recordSchema, boolean caseSensitive) {
+    this.recordSchema = recordSchema;
     this.caseSensitive = caseSensitive;
+  }
+
+  /**
+   * Looks up a top-level field of {@link #recordSchema} by name, honouring {@link #caseSensitive}.
+   *
+   * @return the field, or {@code null} if there is none
+   */
+  protected HoodieSchemaField findField(String name) {
+    if (caseSensitive) {
+      if (nameToFields == null) {
+        nameToFields = recordSchema.getFields().stream()
+            .collect(Collectors.toMap(HoodieSchemaField::name, Function.identity()));
+      }
+      return nameToFields.get(name);
+    }
+    if (lowercaseNameToFields == null) {
+      lowercaseNameToFields = recordSchema.getFields().stream()
+          .collect(Collectors.toMap(field -> field.name().toLowerCase(Locale.ROOT), Function.identity()));
+    }
+    return lowercaseNameToFields.get(name.toLowerCase(Locale.ROOT));
+  }
+
+  /**
+   * Builds the reference a bound field resolves to: its position, typed with its non-null schema.
+   */
+  protected static BoundReference toBoundReference(HoodieSchemaField field) {
+    return new BoundReference(field.pos(), field.getNonNullSchema());
   }
 
   @Override
@@ -110,16 +148,14 @@ public class BindVisitor implements ExpressionVisitor<Expression>  {
 
   @Override
   public Expression visitNameReference(NameReference attribute) {
-    Types.Field field = caseSensitive
-        ? recordType.fieldByName(attribute.getName())
-        : recordType.fieldByNameCaseInsensitive(attribute.getName());
+    HoodieSchemaField field = findField(attribute.getName());
 
     if (field == null) {
       throw new IllegalArgumentException("The attribute " + attribute
-          + " cannot be bound from schema " + recordType);
+          + " cannot be bound from schema " + recordSchema);
     }
 
-    return new BoundReference(field.fieldId(), field.type());
+    return toBoundReference(field);
   }
 
   @Override

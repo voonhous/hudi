@@ -23,7 +23,8 @@ import org.apache.hudi.common.expression.Expression;
 import org.apache.hudi.common.expression.Literal;
 import org.apache.hudi.common.expression.NameReference;
 import org.apache.hudi.common.expression.Predicates;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.hive.HiveSyncConfig;
@@ -62,16 +63,16 @@ public class PartitionFilterGenerator {
   private Literal buildLiteralExpression(String fieldValue, String fieldType) {
     switch (fieldType.toLowerCase(Locale.ROOT)) {
       case HiveSchemaUtil.INT_TYPE_NAME:
-        return new Literal<>(Integer.parseInt(fieldValue), Types.IntType.get());
+        return new Literal<>(Integer.parseInt(fieldValue), HoodieSchema.create(HoodieSchemaType.INT));
       case HiveSchemaUtil.BIGINT_TYPE_NAME:
-        return new Literal<>(Long.parseLong(fieldValue), Types.LongType.get());
+        return new Literal<>(Long.parseLong(fieldValue), HoodieSchema.create(HoodieSchemaType.LONG));
       // TODO Handle Date value
       case HiveSchemaUtil.DATE_TYPE_NAME:
-        return new Literal<>(fieldValue, Types.DateType.get());
+        return new Literal<>(fieldValue, HoodieSchema.createDate());
       case HiveSchemaUtil.STRING_TYPE_NAME:
-        return new Literal<>(fieldValue, Types.StringType.get());
+        return new Literal<>(fieldValue, HoodieSchema.create(HoodieSchemaType.STRING));
       case HiveSchemaUtil.BOOLEAN_TYPE_NAME:
-        return new Literal<>(Boolean.parseBoolean(fieldValue), Types.BooleanType.get());
+        return new Literal<>(Boolean.parseBoolean(fieldValue), HoodieSchema.create(HoodieSchemaType.BOOLEAN));
       default:
         throw new IllegalArgumentException(String.format(UNSUPPORTED_TYPE_ERROR, fieldType));
     }

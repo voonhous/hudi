@@ -28,7 +28,8 @@ import org.apache.hudi.common.expression.Predicates.Or;
 import org.apache.hudi.common.expression.Predicates.StringContains;
 import org.apache.hudi.common.expression.Predicates.StringStartsWith;
 import org.apache.hudi.common.expression.Predicates.StringStartsWithAny;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.junit.jupiter.api.Test;
 
@@ -57,9 +58,9 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 class PredicatesTest {
 
   // Define some common literal expressions for use in tests
-  private final Expression a = new Literal<>("a", Types.StringType.get());
-  private final Expression b = new Literal<>(10, Types.IntType.get());
-  private final Expression c = new Literal<>("c", Types.StringType.get());
+  private final Expression a = new Literal<>("a", HoodieSchema.create(HoodieSchemaType.STRING));
+  private final Expression b = new Literal<>(10, HoodieSchema.create(HoodieSchemaType.INT));
+  private final Expression c = new Literal<>("c", HoodieSchema.create(HoodieSchemaType.STRING));
 
   @Test
   void testSingletonPredicates() {
@@ -242,8 +243,8 @@ class PredicatesTest {
     // Operands are built independently (distinct instances) but are value-equal. This is the
     // independently-built-tree case the Trino Expression Index comparison relies on: it only holds
     // if the leaf operands (Literal, NameReference) compare by value rather than by identity.
-    Expression lit1 = new Literal<>("a", Types.StringType.get());
-    Expression lit2 = new Literal<>("a", Types.StringType.get());
+    Expression lit1 = new Literal<>("a", HoodieSchema.create(HoodieSchemaType.STRING));
+    Expression lit2 = new Literal<>("a", HoodieSchema.create(HoodieSchemaType.STRING));
     Expression col1 = new NameReference("col");
     Expression col2 = new NameReference("col");
 
@@ -258,8 +259,8 @@ class PredicatesTest {
         and(eq(col2, lit2), isNotNull(col2)).hashCode());
 
     // Value still distinguishes: a different literal value or column name is not equal.
-    assertNotEquals(isNull(new Literal<>("a", Types.StringType.get())),
-        isNull(new Literal<>("b", Types.StringType.get())));
+    assertNotEquals(isNull(new Literal<>("a", HoodieSchema.create(HoodieSchemaType.STRING))),
+        isNull(new Literal<>("b", HoodieSchema.create(HoodieSchemaType.STRING))));
     assertNotEquals(isNull(new NameReference("col")), isNull(new NameReference("other")));
   }
 }

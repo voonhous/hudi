@@ -18,8 +18,6 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
-
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
@@ -432,10 +430,10 @@ public class Predicates {
 
     @Override
     public Boolean eval(StructLike data) {
-      if (getLeft().getDataType().isNestedType()) {
+      if (ExpressionTypes.isNested(getLeft().getDataType())) {
         throw new IllegalArgumentException("The nested type doesn't support binary comparison");
       }
-      Comparator<Object> comparator = Comparators.forType((Type.PrimitiveType) getLeft().getDataType());
+      Comparator<Object> comparator = Comparators.forType(getLeft().getDataType());
       switch (getOperator()) {
         case EQ:
           return comparator.compare(getLeft().eval(data), getRight().eval(data)) == 0;

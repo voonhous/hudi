@@ -27,7 +27,7 @@ import org.apache.hudi.common.function.SerializableFunctionUnchecked;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
@@ -130,13 +130,15 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
   /**
    * Retrieve the paths of partitions under the provided sub-directories,
    * and try to filter these partitions using the provided {@link Expression}.
+   *
+   * @param partitionFields record schema with one field per partition column, in partition path order
    */
   List<String> getPartitionPathWithPathPrefixUsingFilterExpression(List<String> relativePathPrefixes,
-                                                                   Types.RecordType partitionFields,
+                                                                   HoodieSchema partitionFields,
                                                                    Expression expression) throws IOException;
 
   default List<String> getPartitionPathWithPathPrefixUsingFilterExpression(List<String> relativePathPrefixes,
-                                                                           Types.RecordType partitionFields,
+                                                                           HoodieSchema partitionFields,
                                                                            Expression expression,
                                                                            List<Object> partitionPredicateExpressions) throws IOException {
     return getPartitionPathWithPathPrefixUsingFilterExpression(relativePathPrefixes, partitionFields, expression);

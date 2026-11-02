@@ -18,7 +18,9 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -29,16 +31,16 @@ import java.util.Arrays;
 
 public class TestPartialBindVisitor {
 
-  private static Types.RecordType schema;
+  private static HoodieSchema schema;
   @BeforeAll
   public static void init() {
-    ArrayList<Types.Field> fields = new ArrayList<>(5);
-    fields.add(Types.Field.get(0, true, "a", Types.StringType.get()));
-    fields.add(Types.Field.get(1, true, "b", Types.DateType.get()));
-    fields.add(Types.Field.get(2, true, "c", Types.IntType.get()));
-    fields.add(Types.Field.get(3, true, "d", Types.LongType.get()));
-    fields.add(Types.Field.get(4, false, "f", Types.BooleanType.get()));
-    schema = Types.RecordType.get(fields, "schema");
+    ArrayList<HoodieSchemaField> fields = new ArrayList<>(5);
+    fields.add(HoodieSchemaField.of("a", HoodieSchema.createNullable(HoodieSchemaType.STRING)));
+    fields.add(HoodieSchemaField.of("b", HoodieSchema.createNullable(HoodieSchema.createDate())));
+    fields.add(HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchemaType.INT)));
+    fields.add(HoodieSchemaField.of("d", HoodieSchema.createNullable(HoodieSchemaType.LONG)));
+    fields.add(HoodieSchemaField.of("f", HoodieSchema.create(HoodieSchemaType.BOOLEAN)));
+    schema = HoodieSchema.createRecord("schema", null, null, fields);
   }
 
   @Test

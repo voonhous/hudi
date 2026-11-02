@@ -20,8 +20,8 @@ package org.apache.hudi.metadata;
 
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.expression.ArrayData;
-import org.apache.hudi.common.schema.internal.Type;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.util.HoodieStorageUtils;
 import org.apache.hudi.common.util.PartitionPathEncodeUtils;
 import org.apache.hudi.common.util.StringUtils;
@@ -29,12 +29,19 @@ import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
 import org.apache.hudi.storage.StoragePath;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public abstract class AbstractHoodieTableMetadata implements HoodieTableMetadata {
+
+  private static final LocalDate EPOCH_DAY = LocalDate.ofEpochDay(0);
 
   protected transient HoodieEngineContext engineContext;
   protected transient HoodieStorage storage;
@@ -59,7 +66,7 @@ public abstract class AbstractHoodieTableMetadata implements HoodieTableMetadata
     return storage;
   }
 
-  protected static int getPathPartitionLevel(Types.RecordType partitionFields, String path) {
+  protected static int getPathPartitionLevel(HoodieSchema partitionFields, String path) {
     if (StringUtils.isNullOrEmpty(path) || partitionFields == null) {
       return 0;
     }
@@ -79,15 +86,16 @@ public abstract class AbstractHoodieTableMetadata implements HoodieTableMetadata
     return level;
   }
 
-  protected static ArrayData extractPartitionValues(Types.RecordType partitionFields,
+  protected static ArrayData extractPartitionValues(HoodieSchema partitionFields,
                                                     String relativePartitionPath,
                                                     boolean urlEncodePartitioningEnabled) {
-    if (partitionFields.fields().size() == 1) {
+    List<HoodieSchemaField> fields = partitionFields.getFields();
+    if (fields.size() == 1) {
       // SinglePartPartitionValue, which might contain slashes.
       String partitionValue = relativePartitionPath.split("=")[1];
-      return new ArrayData(Collections.singletonList(Type.fromPartitionString(
+      return new ArrayData(Collections.singletonList(fromPartitionString(
           urlEncodePartitioningEnabled ? PartitionPathEncodeUtils.unescapePathName(partitionValue) : partitionValue,
-          partitionFields.field(0).type())));
+          fields.get(0).getNonNullSchema())));
     }
 
     List<Object> partitionValues;
@@ -95,11 +103,49 @@ public abstract class AbstractHoodieTableMetadata implements HoodieTableMetadata
     partitionValues = IntStream.range(0, partitionFragments.length)
         .mapToObj(idx -> {
           String partitionValue = partitionFragments[idx].split("=")[1];
-          return Type.fromPartitionString(
+          return fromPartitionString(
               urlEncodePartitioningEnabled ? PartitionPathEncodeUtils.unescapePathName(partitionValue) : partitionValue,
-              partitionFields.field(idx).type());
+              fields.get(idx).getNonNullSchema());
         }).collect(Collectors.toList());
 
     return new ArrayData(partitionValues);
+  }
+
+  /**
+   * Parses a partition path value into the Java value an expression of the given type compares against.
+   */
+  private static Object fromPartitionString(String partitionValue, HoodieSchema type) {
+    if (partitionValue == null
+        || PartitionPathEncodeUtils.DEFAULT_PARTITION_PATH.equals(partitionValue)
+        || PartitionPathEncodeUtils.DEPRECATED_DEFAULT_PARTITION_PATH.equals(partitionValue)) {
+      return null;
+    }
+
+    switch (type.getType()) {
+      case INT:
+        return Integer.parseInt(partitionValue);
+      case LONG:
+        return Long.parseLong(partitionValue);
+      case BOOLEAN:
+        return Boolean.parseBoolean(partitionValue);
+      case FLOAT:
+        return Float.parseFloat(partitionValue);
+      case DECIMAL:
+        return new BigDecimal(partitionValue);
+      case DOUBLE:
+        return Double.parseDouble(partitionValue);
+      case UUID:
+        return UUID.fromString(partitionValue);
+      case DATE:
+        // TODO Support different date format
+        return Math.toIntExact(ChronoUnit.DAYS.between(
+            EPOCH_DAY, LocalDate.parse(partitionValue, DateTimeFormatter.ISO_LOCAL_DATE)));
+      case STRING:
+      case ENUM:
+        return partitionValue;
+      default:
+        throw new UnsupportedOperationException("Cast value " + partitionValue
+            + " to type " + type + " is not supported yet");
+    }
   }
 }

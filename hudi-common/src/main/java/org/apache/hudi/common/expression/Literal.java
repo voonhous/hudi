@@ -18,8 +18,8 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
@@ -38,57 +38,74 @@ public class Literal<T> extends LeafExpression {
 
   public static <V> Literal from(V value) {
     if (value instanceof Integer || value instanceof Short) {
-      return new Literal<>(value, Types.IntType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.INT));
     }
 
     if (value instanceof Byte) {
-      return new Literal<>(((Byte)value).intValue(), Types.IntType.get());
+      return new Literal<>(((Byte)value).intValue(), HoodieSchema.create(HoodieSchemaType.INT));
     }
 
     if (value instanceof Long) {
-      return new Literal<>(value, Types.LongType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.LONG));
     }
 
     if (value instanceof Boolean) {
-      return new Literal<>(value, Types.BooleanType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.BOOLEAN));
     }
 
     if (value instanceof Double) {
-      return new Literal<>(value, Types.DoubleType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.DOUBLE));
     }
 
     if (value instanceof Float) {
-      return new Literal<>(value, Types.FloatType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.FLOAT));
     }
 
     if (value instanceof BigDecimal) {
       BigDecimal decimal = (BigDecimal) value;
-      return new Literal<>(value, Types.DecimalType.get(decimal.precision(), decimal.scale()));
+      return new Literal<>(value, decimalType(decimal));
     }
 
     if (value instanceof CharSequence) {
-      return new Literal<>(value, Types.StringType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.STRING));
     }
 
     if (value instanceof byte[]) {
       byte[] bytes = (byte[]) value;
-      return new Literal<>(ByteBuffer.wrap(bytes), Types.FixedType.getFixed(bytes.length));
+      return new Literal<>(ByteBuffer.wrap(bytes), HoodieSchema.createFixed("fixed_" + bytes.length, null, null, bytes.length));
     }
 
     if (value instanceof ByteBuffer) {
-      return new Literal<>(value, Types.BinaryType.get());
+      return new Literal<>(value, HoodieSchema.create(HoodieSchemaType.BYTES));
     }
 
     if (value instanceof UUID) {
-      return new Literal<>(value, Types.UUIDType.get());
+      return new Literal<>(value, HoodieSchema.createUUID());
     }
 
     throw new IllegalArgumentException("Cannot convert value from class "
         + value.getClass().getName() + " to Literal");
   }
 
+  /**
+   * Types a {@link BigDecimal} as {@code decimal(precision, scale)}. A decimal schema needs
+   * {@code 0 <= scale <= precision}, which a {@link BigDecimal} does not guarantee (e.g. {@code 0.001} has
+   * precision 1 and scale 3, {@code 1E+3} has scale -3); such values get the smallest decimal type that
+   * holds them instead of failing, since the InternalSchema decimal type accepted any precision and scale.
+   */
+  private static HoodieSchema decimalType(BigDecimal decimal) {
+    int precision = decimal.precision();
+    int scale = decimal.scale();
+    if (scale >= 0 && scale <= precision) {
+      return HoodieSchema.createDecimal(precision, scale);
+    }
+    int adjustedScale = Math.max(scale, 0);
+    int adjustedPrecision = Math.max(precision - Math.min(scale, 0), adjustedScale);
+    return HoodieSchema.createDecimal(adjustedPrecision, adjustedScale);
+  }
+
   private final T value;
-  private final Type dataType;
+  private final HoodieSchema dataType;
 
   @Override
   public Object eval(StructLike data) {

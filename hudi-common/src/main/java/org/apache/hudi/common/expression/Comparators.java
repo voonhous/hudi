@@ -18,38 +18,47 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
-import org.apache.hudi.common.schema.internal.Types;
-import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.schema.HoodieSchema;
 
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Map;
 
+/**
+ * Comparators for the values of {@link Expression}s, by expression type.
+ */
 public class Comparators {
 
-  private static final Map<Type, Comparator<?>> COMPARATORS = Collections.unmodifiableMap(
-      new HashMap<Type, Comparator<?>>() {
-        {
-          put(Types.BooleanType.get(), Comparator.naturalOrder());
-          put(Types.IntType.get(), Comparator.naturalOrder());
-          put(Types.LongType.get(), Comparator.naturalOrder());
-          put(Types.FloatType.get(), Comparator.naturalOrder());
-          put(Types.DoubleType.get(), Comparator.naturalOrder());
-          put(Types.DateType.get(), Comparator.naturalOrder());
-          put(Types.TimeType.get(), Comparator.naturalOrder());
-          put(Types.TimestampType.get(), Comparator.naturalOrder());
-          put(Types.TimestampMillisType.get(), Comparator.naturalOrder());
-          put(Types.LocalTimestampMillisType.get(), Comparator.naturalOrder());
-          put(Types.LocalTimestampMicrosType.get(), Comparator.naturalOrder());
-          put(Types.StringType.get(), Comparator.naturalOrder());
-          put(Types.UUIDType.get(), Comparator.naturalOrder());
-        }
-      });
+  /**
+   * Returns the natural-order comparator for BOOLEAN, INT, LONG, FLOAT, DOUBLE, DATE, time-micros, every
+   * TIMESTAMP flavour, STRING and UUID, the types that had a comparator when expressions were typed with
+   * InternalSchema (where ENUM read as STRING). Every other type, time-millis included, throws.
+   *
+   * @throws UnsupportedOperationException if the type has no comparator
+   */
+  public static <T> Comparator<T> forType(HoodieSchema type) {
+    if (type == null || !isComparable(type)) {
+      throw new UnsupportedOperationException("The desired type " + type + " doesn't support comparator yet");
+    }
+    return (Comparator<T>) Comparator.naturalOrder();
+  }
 
-  public static <T> Comparator<T> forType(Type.PrimitiveType type) {
-    return (Comparator<T>) Option.ofNullable(COMPARATORS.get(type))
-        .orElseThrow(() -> new UnsupportedOperationException("The desired type " + type + " doesn't support comparator yet"));
+  private static boolean isComparable(HoodieSchema type) {
+    switch (type.getType()) {
+      case BOOLEAN:
+      case INT:
+      case LONG:
+      case FLOAT:
+      case DOUBLE:
+      case DATE:
+      case TIMESTAMP:
+      case STRING:
+      case ENUM:
+      case UUID:
+        return true;
+      case TIME:
+        // RFC-88 bug list: the InternalSchema typing only had a comparator for time-micros, not time-millis.
+        return ((HoodieSchema.Time) type).getPrecision() == HoodieSchema.TimePrecision.MICROS;
+      default:
+        return false;
+    }
   }
 }

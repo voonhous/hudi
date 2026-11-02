@@ -18,7 +18,7 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Type;
+import org.apache.hudi.common.schema.HoodieSchema;
 
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
@@ -32,7 +32,7 @@ public class NameReference extends LeafExpression {
   private final String name;
 
   @Override
-  public Type getDataType() {
+  public HoodieSchema getDataType() {
     throw new UnsupportedOperationException("NameReference is not bound yet");
   }
 

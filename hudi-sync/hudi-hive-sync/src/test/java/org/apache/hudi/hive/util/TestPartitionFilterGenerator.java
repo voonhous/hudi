@@ -18,14 +18,21 @@
 
 package org.apache.hudi.hive.util;
 
+import org.apache.hudi.common.expression.Literal;
+import org.apache.hudi.common.expression.NameReference;
+import org.apache.hudi.common.expression.Predicates;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.sync.common.model.FieldSchema;
 
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
 
 import static org.apache.hudi.hive.HiveSyncConfig.HIVE_SYNC_FILTER_PUSHDOWN_MAX_SIZE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -77,6 +84,26 @@ public class TestPartitionFilterGenerator {
     writtenPartitions.add("false");
     assertEquals("",
         partitionFilterGenerator.generatePushDownFilter(writtenPartitions, partitionFieldSchemas, config));
+  }
+
+  @Test
+  public void testFilterGenVisitorLiteralTypes() {
+    FilterGenVisitor visitor = new FilterGenVisitor();
+    // STRING is quoted; INT, LONG and DATE are printed as is.
+    assertEquals("\"a\"", Literal.from("a").accept(visitor));
+    assertEquals("'a\"b'", Literal.from("a\"b").accept(visitor));
+    assertEquals("7", Literal.from(7).accept(visitor));
+    assertEquals("7", Literal.from(7L).accept(visitor));
+    assertEquals("2022-09-01", new Literal<>("2022-09-01", HoodieSchema.createDate()).accept(visitor));
+    // Every other type is dropped from the filter, as are comparisons on it.
+    assertEquals("", Literal.from(UUID.randomUUID()).accept(visitor));
+    assertEquals("", Literal.from(new BigDecimal("1.5")).accept(visitor));
+    assertEquals("", Literal.from(1.5d).accept(visitor));
+    assertEquals("", Literal.from(true).accept(visitor));
+    assertEquals("", new Literal<>(1L, HoodieSchema.createTimestampMicros()).accept(visitor));
+    assertEquals("", new Literal<>("a", (HoodieSchema) null).accept(visitor));
+    assertEquals("", Predicates.eq(new NameReference("b"), Literal.from(true)).accept(visitor));
+    assertEquals("b = 1", Predicates.eq(new NameReference("b"), new Literal<>(1, HoodieSchema.create(HoodieSchemaType.INT))).accept(visitor));
   }
 
   @Test

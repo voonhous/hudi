@@ -18,7 +18,8 @@
 
 package org.apache.hudi.common.expression;
 
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.util.Option;
 
 import java.util.List;
@@ -28,14 +29,14 @@ import java.util.stream.Collectors;
 /**
  * Will try to bind all references, and convert unresolved references to AlwaysTrue.
  *
- * e.g. `year=2023 AND day=12`, if year and day both are provided to `recordType`,
+ * e.g. `year=2023 AND day=12`, if year and day both are provided to `recordSchema`,
  * then the expression won't change, if day is not provided, the expression will be
  * transformed to `year=2023 AND True`, which will be optimized to `year=2023`.
  */
 public class PartialBindVisitor extends BindVisitor {
 
-  public PartialBindVisitor(Types.RecordType recordType, boolean caseSensitive) {
-    super(recordType, caseSensitive);
+  public PartialBindVisitor(HoodieSchema recordSchema, boolean caseSensitive) {
+    super(recordSchema, caseSensitive);
   }
 
   /**
@@ -44,15 +45,13 @@ public class PartialBindVisitor extends BindVisitor {
    */
   @Override
   public Expression visitNameReference(NameReference attribute) {
-    Types.Field field = caseSensitive
-        ? recordType.fieldByName(attribute.getName())
-        : recordType.fieldByNameCaseInsensitive(attribute.getName());
+    HoodieSchemaField field = findField(attribute.getName());
 
     if (field == null) {
       return null;
     }
 
-    return new BoundReference(field.fieldId(), field.type());
+    return toBoundReference(field);
   }
 
   /**

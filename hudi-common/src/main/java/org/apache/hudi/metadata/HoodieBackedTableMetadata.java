@@ -46,7 +46,6 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaUtils;
-import org.apache.hudi.common.schema.internal.Types;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.log.InstantRange;
 import org.apache.hudi.common.table.read.FileGroupReaderSchemaHandler;
@@ -198,7 +197,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
   @Override
   public List<String> getPartitionPathWithPathPrefixUsingFilterExpression(List<String> relativePathPrefixes,
-                                                                          Types.RecordType partitionFields,
+                                                                          HoodieSchema partitionFields,
                                                                           Expression expression) throws IOException {
     Expression boundedExpr = expression.accept(new BindVisitor(partitionFields, caseSensitive));
     List<String> selectedPartitionPaths = getPartitionPathWithPathPrefixes(relativePathPrefixes);
@@ -206,7 +205,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     // Can only prune partitions if the number of partition levels matches partition fields
     // Here we'll check the first selected partition to see whether the numbers match.
     if (hiveStylePartitioningEnabled
-        && getPathPartitionLevel(partitionFields, selectedPartitionPaths.get(0)) == partitionFields.fields().size()) {
+        && getPathPartitionLevel(partitionFields, selectedPartitionPaths.get(0)) == partitionFields.getFields().size()) {
       return selectedPartitionPaths.stream()
           .filter(p ->
               (boolean) boundedExpr.eval(extractPartitionValues(partitionFields, p, urlEncodePartitioningEnabled)))

@@ -28,7 +28,7 @@ import org.apache.hudi.common.expression.Expression;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
-import org.apache.hudi.common.schema.internal.Types;
+import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
@@ -194,7 +194,7 @@ class TestBaseTableMetadata {
     @Override
     public List<String> getPartitionPathWithPathPrefixUsingFilterExpression(
         List<String> relativePathPrefixes,
-        Types.RecordType partitionFields,
+        HoodieSchema partitionFields,
         Expression expression) {
       return Collections.emptyList();
     }

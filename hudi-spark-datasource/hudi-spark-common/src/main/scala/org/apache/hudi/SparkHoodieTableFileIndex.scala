@@ -26,7 +26,6 @@ import org.apache.hudi.common.engine.HoodieEngineContext
 import org.apache.hudi.common.model.{FileSlice, HoodieTableQueryType}
 import org.apache.hudi.common.model.HoodieRecord.HOODIE_META_COLUMNS_WITH_OPERATION
 import org.apache.hudi.common.schema.HoodieSchema
-import org.apache.hudi.common.schema.internal.Types.RecordType
 import org.apache.hudi.common.schema.internal.utils.Conversions
 import org.apache.hudi.common.table.{HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.common.table.timeline.HoodieTimeline
@@ -453,10 +452,10 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
 
     val partitionTypesOption = if (hiveStylePartitioning && urlEncodePartitioning) {
       Try {
-        SparkFilterHelper.convertDataType(partitionSchema).asInstanceOf[RecordType]
+        SparkFilterHelper.convertDataType(partitionSchema)
       } match {
         case Success(partitionRecordType)
-          if partitionRecordType.fields().size() == _partitionSchemaFromProperties.size
+          if partitionRecordType.getFields.size() == _partitionSchemaFromProperties.size
             && Conversions.isPartitionSchemaSupportedConversion(partitionRecordType) =>
           Some(partitionRecordType)
         case _ =>
