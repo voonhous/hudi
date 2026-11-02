@@ -97,6 +97,11 @@ public class FileStatsIndex implements ColumnStatsIndex {
     this.metaClient = metaClient;
   }
 
+  /**
+   * Marks a TINYINT / SMALLINT statistic outside of the range of the type; see {@link #narrowIntStat}.
+   */
+  private static final Object OUT_OF_RANGE = new Object();
+
   @Override
   public String getIndexPartitionName() {
     return HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS;
@@ -341,6 +346,14 @@ public class FileStatsIndex implements ColumnStatsIndex {
 
     Object minValue = tryUnpackNonNullVal(minValueStruct, colType, converters);
     Object maxValue = tryUnpackNonNullVal(maxValueStruct, colType, converters);
+    if (minValue == OUT_OF_RANGE || maxValue == OUT_OF_RANGE) {
+      // unknown statistics: the probe keeps the candidate
+      GenericRowData unknown = new GenericRowData(row.getArity());
+      unknown.setField(0, row.getString(0));
+      unknown.setField(4, row.getLong(4));
+      unknown.setField(5, row.getString(5));
+      return unknown;
+    }
 
     // the column schema:
     // |- file_name: string
@@ -378,9 +391,35 @@ public class FileStatsIndex implements ColumnStatsIndex {
       Object rawVal,
       LogicalType logicalType,
       Map<LogicalType, AvroToRowDataConverters.AvroToRowDataConverter> converters) {
+    switch (logicalType.getTypeRoot()) {
+      case TINYINT:
+        return narrowIntStat(rawVal, Byte.MIN_VALUE, Byte.MAX_VALUE);
+      case SMALLINT:
+        return narrowIntStat(rawVal, Short.MIN_VALUE, Short.MAX_VALUE);
+      default:
+        break;
+    }
     AvroToRowDataConverters.AvroToRowDataConverter converter =
         converters.computeIfAbsent(logicalType, k -> AvroToRowDataConverters.createConverter(logicalType, true));
     return converter.convert(rawVal);
+  }
+
+  /**
+   * The statistic of a TINYINT or SMALLINT column (a Byte or a Short), or {@link #OUT_OF_RANGE} when it does not fit.
+   *
+   * <p>The column stats of a TINYINT / SMALLINT column hold the integers the file stores. Before Flink stored those
+   * columns sign extended (in tables whose schema stores them as INT), a negative value was stored as its unsigned
+   * byte pattern (-1 as 255 or 65535), and the statistics hold those numbers. Flink reads such a value back truncated
+   * (255 as -1), so statistics are only valid when they are within the range of the Flink type: a file without
+   * negative values stores them as they are, a file with one has a statistic out of range. Out-of-range statistics
+   * (also those of wider integers a table may hold, which Flink reads truncated as well) are treated as unknown.
+   */
+  private static Object narrowIntStat(Object rawVal, long min, long max) {
+    long value = ((Number) rawVal).longValue();
+    if (value < min || value > max) {
+      return OUT_OF_RANGE;
+    }
+    return max == Byte.MAX_VALUE ? (Object) (byte) value : (Object) (short) value;
   }
 
   /**

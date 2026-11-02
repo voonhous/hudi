@@ -25,6 +25,7 @@ import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.configuration.OptionsInference;
 import org.apache.hudi.configuration.OptionsResolver;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.sink.transform.NarrowIntWidening;
 import org.apache.hudi.sink.utils.Pipelines;
 import org.apache.hudi.util.ChangelogModes;
 import org.apache.hudi.util.DataModificationInfos;
@@ -43,6 +44,7 @@ import org.apache.flink.table.connector.sink.abilities.SupportsPartitioning;
 import org.apache.flink.table.connector.sink.abilities.SupportsRowLevelDelete;
 import org.apache.flink.table.connector.sink.abilities.SupportsRowLevelUpdate;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
 import javax.annotation.Nullable;
@@ -77,24 +79,32 @@ public class HoodieTableSink implements
 
   @Override
   public SinkRuntimeProvider getSinkRuntimeProvider(Context context) {
-    return (DataStreamSinkProviderAdapter) dataStream -> {
+    return (DataStreamSinkProviderAdapter) input -> {
 
       // setup configuration
-      long ckpTimeout = dataStream.getExecutionEnvironment()
+      long ckpTimeout = input.getExecutionEnvironment()
           .getCheckpointConfig().getCheckpointTimeout();
       conf.set(FlinkOptions.WRITE_COMMIT_ACK_TIMEOUT, ckpTimeout);
       // set up default parallelism
-      OptionsInference.setupSinkTasks(conf, dataStream.getExecutionConfig().getParallelism());
+      OptionsInference.setupSinkTasks(conf, input.getExecutionConfig().getParallelism());
       // set up client id
       OptionsInference.setupClientId(conf);
       // set up flink runtime configurations.
-      OptionsInference.setupRuntimeConfigs(conf, dataStream.getExecutionEnvironment().getConfiguration());
+      OptionsInference.setupRuntimeConfigs(conf, input.getExecutionEnvironment().getConfiguration());
       // initialize table, create if not exists.
       StreamerUtil.initTableFromClientIfNecessary(conf);
       // set up index related configs
       OptionsInference.setupIndexConfigs(conf);
 
-      RowType rowType = (RowType) schema.toSinkRowDataType().notNull().getLogicalType();
+      RowType inputRowType = (RowType) schema.toSinkRowDataType().notNull().getLogicalType();
+      // TINYINT / SMALLINT columns the write schema stores as wider integers are widened first, so their values are
+      // stored sign extended (the writers read them with the width of the write schema)
+      RowType rowType = NarrowIntWidening.widenedRowType(inputRowType, StreamerUtil.getSourceSchema(conf));
+      DataStream<RowData> dataStream = rowType.equals(inputRowType)
+          ? input
+          : input.map(NarrowIntWidening.converter(inputRowType, rowType), InternalTypeInfo.of(rowType))
+              .setParallelism(input.getParallelism())
+              .name("widen_narrow_ints");
 
       // bulk_insert mode
       if (OptionsResolver.isBulkInsertOperation(conf)) {

@@ -28,6 +28,8 @@ import org.apache.hudi.common.expression.translate.ExpressionMappers;
 import org.apache.hudi.common.expression.translate.ExpressionTranslator;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.mapping.TypeSystems;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Option;
@@ -48,18 +50,21 @@ import org.apache.hudi.source.prune.ColumnStatsProbe;
 import org.apache.hudi.source.prune.PartitionPruners;
 import org.apache.hudi.source.stats.FileStatsIndex;
 import org.apache.hudi.source.stats.PartitionStatsIndex;
+import org.apache.hudi.util.ExpressionUtils;
 import org.apache.hudi.util.HoodieSchemaConverter;
 import org.apache.hudi.util.StreamerUtil;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.expressions.ResolvedExpression;
+import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 
 import javax.annotation.Nullable;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -216,13 +221,42 @@ public final class IndexPlannerSupport {
       return probe;
     }
     try {
-      Option<Expression> filter = translate(dataFilters, schemaOf(rowType));
+      HoodieSchema schema = schemaOf(rowType);
+      Option<Expression> filter = translate(withoutNarrowIntsStoredAsInt(dataFilters, rowType, schema), schema);
       return filter.isPresent() ? probe.withPlannerFilter(filter.get()) : probe;
     } catch (Throwable t) {
       // the planner then prunes nothing, the query is not affected
       log.warn("Index planner: cannot translate the filters {}, the planner will not prune", dataFilters, t);
       return probe;
     }
+  }
+
+  /**
+   * The filters without those on TINYINT / SMALLINT columns the schema stores as INT.
+   *
+   * <p>Files Flink wrote to such columns before it stored them sign extended hold negative values as their unsigned
+   * byte pattern (-1 as 255 or 65535), and so do their statistics, while Flink reads the values truncated. The planner
+   * compares the statistics as they are, so it does not use filters on these columns (see
+   * rfc/rfc-88/data-skipping-issues.md, item 9). Leaving a filter out only keeps more candidates.
+   */
+  @VisibleForTesting
+  static List<ResolvedExpression> withoutNarrowIntsStoredAsInt(List<ResolvedExpression> filters, RowType rowType, HoodieSchema schema) {
+    Set<String> narrowIntsStoredAsInt = new HashSet<>();
+    for (RowType.RowField field : rowType.getFields()) {
+      LogicalTypeRoot root = field.getType().getTypeRoot();
+      if (root == LogicalTypeRoot.TINYINT || root == LogicalTypeRoot.SMALLINT) {
+        Option<HoodieSchemaField> schemaField = schema.getField(field.getName());
+        if (schemaField.isPresent() && schemaField.get().schema().getNonNullType().getType() == HoodieSchemaType.INT) {
+          narrowIntsStoredAsInt.add(field.getName());
+        }
+      }
+    }
+    if (narrowIntsStoredAsInt.isEmpty()) {
+      return filters;
+    }
+    return filters.stream()
+        .filter(filter -> Arrays.stream(ExpressionUtils.referencedColumns(Collections.singletonList(filter))).noneMatch(narrowIntsStoredAsInt::contains))
+        .collect(Collectors.toList());
   }
 
   // -------------------------------------------------------------------------

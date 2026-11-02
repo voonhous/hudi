@@ -37,10 +37,13 @@ import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.expressions.ValueLiteralExpression;
 import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
 import org.apache.flink.table.types.DataType;
+import org.apache.parquet.filter2.predicate.FilterPredicate;
+import org.apache.parquet.filter2.predicate.Operators;
 import org.apache.parquet.filter2.predicate.Operators.Eq;
 import org.apache.parquet.filter2.predicate.Operators.Gt;
 import org.apache.parquet.filter2.predicate.Operators.IntColumn;
 import org.apache.parquet.filter2.predicate.Operators.Lt;
+import org.apache.parquet.filter2.predicate.UserDefinedPredicate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -52,6 +55,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -68,6 +72,8 @@ import static org.apache.parquet.filter2.predicate.FilterApi.notEq;
 import static org.apache.parquet.filter2.predicate.FilterApi.or;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -177,6 +183,48 @@ public class TestExpressionPredicates {
     Predicate predicate20 = fromExpression(orExpression);
     assertEquals(predicate19.toString(), predicate20.toString());
     assertEquals(or(lt, gt), predicate20.filter());
+  }
+
+  /**
+   * TINYINT / SMALLINT comparisons keep row groups whose statistics are out of the type's range (files Flink wrote
+   * before it stored these columns sign extended), and use statistics within it (data-skipping-issues.md, item 9).
+   */
+  @Test
+  public void testNarrowIntPredicateIgnoresOutOfRangeStatistics() {
+    UserDefinedPredicate<Integer> lessThanZero = narrowIntPredicate(
+        ExpressionPredicates.NarrowIntPredicate.of(BuiltInFunctionDefinitions.LESS_THAN, "f", 0, true));
+    // an old file holding 127 and -128, stored as 127 and 128
+    assertFalse(lessThanZero.canDrop(stats(127, 128)));
+    assertTrue(lessThanZero.keep(128), "128 is read as -128");
+    assertFalse(lessThanZero.keep(127));
+    // statistics within the range are used
+    assertTrue(lessThanZero.canDrop(stats(0, 127)));
+    assertFalse(lessThanZero.canDrop(stats(-128, 127)));
+    // NOT (f < 0): drops a row group holding only negative values
+    assertTrue(lessThanZero.inverseCanDrop(stats(-128, -1)));
+    assertFalse(lessThanZero.inverseCanDrop(stats(128, 255)));
+
+    UserDefinedPredicate<Integer> smallEquals = narrowIntPredicate(
+        ExpressionPredicates.NarrowIntPredicate.of(BuiltInFunctionDefinitions.EQUALS, "f", -1, false));
+    assertFalse(smallEquals.canDrop(stats(1, 65535)));
+    assertTrue(smallEquals.keep(65535));
+    assertTrue(smallEquals.canDrop(stats(0, 32767)));
+    assertFalse(smallEquals.canDrop(stats(-1, 32767)));
+
+    // a TINYINT column predicate pushes the user-defined predicate down
+    FieldReferenceExpression fieldReference = new FieldReferenceExpression("f_tinyint", DataTypes.TINYINT(), 0, 0);
+    ValueLiteralExpression valueLiteral = new ValueLiteralExpression((byte) -1, DataTypes.TINYINT().notNull());
+    FilterPredicate pushed = LessThan.getInstance().bindValueLiteral(valueLiteral).bindFieldReference(fieldReference).filter();
+    assertInstanceOf(ExpressionPredicates.NarrowIntPredicate.class, narrowIntPredicate(pushed));
+  }
+
+  private static org.apache.parquet.filter2.predicate.Statistics<Integer> stats(int min, int max) {
+    return new org.apache.parquet.filter2.predicate.Statistics<>(min, max, Comparator.naturalOrder());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static UserDefinedPredicate<Integer> narrowIntPredicate(FilterPredicate predicate) {
+    return (UserDefinedPredicate<Integer>) ((Operators.UserDefined<Integer, ?>) predicate).getUserDefinedPredicate();
   }
 
   @Test

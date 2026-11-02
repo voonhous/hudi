@@ -31,6 +31,8 @@ import org.apache.flink.table.functions.FunctionDefinition;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.parquet.filter2.predicate.FilterPredicate;
 import org.apache.parquet.filter2.predicate.Operators;
+import org.apache.parquet.filter2.predicate.Statistics;
+import org.apache.parquet.filter2.predicate.UserDefinedPredicate;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -57,6 +59,7 @@ import static org.apache.parquet.filter2.predicate.FilterApi.ltEq;
 import static org.apache.parquet.filter2.predicate.FilterApi.not;
 import static org.apache.parquet.filter2.predicate.FilterApi.notEq;
 import static org.apache.parquet.filter2.predicate.FilterApi.or;
+import static org.apache.parquet.filter2.predicate.FilterApi.userDefined;
 import static org.apache.parquet.io.api.Binary.fromConstantByteArray;
 import static org.apache.parquet.io.api.Binary.fromString;
 
@@ -648,7 +651,9 @@ public class ExpressionPredicates {
       case BOOLEAN:
         return predicateSupportsEqNotEq(functionDefinition, booleanColumn(columnName), (Boolean) literal);
       case TINYINT:
+        return NarrowIntPredicate.of(functionDefinition, columnName, ((Number) literal).intValue(), true);
       case SMALLINT:
+        return NarrowIntPredicate.of(functionDefinition, columnName, ((Number) literal).intValue(), false);
       case INTEGER:
       case DATE:
       case TIME_WITHOUT_TIME_ZONE:
@@ -668,6 +673,132 @@ public class ExpressionPredicates {
         return predicateSupportsLtGt(functionDefinition, binaryColumn(columnName), fromString((String) literal));
       default:
         return null;
+    }
+  }
+
+  /**
+   * A comparison of a TINYINT or SMALLINT column with a literal, for the Parquet row group filter.
+   *
+   * <p>Flink reads the INT32 values of such a column truncated to the Flink type. Before Flink stored these columns
+   * sign extended (in tables whose schema stores them as INT), a negative value was stored as its unsigned byte
+   * pattern (-1 as 255 or 65535), so the statistics of those files do not order the values Flink reads. Statistics
+   * within the range of the Flink type are those of the values Flink reads (a file is in range unless it holds such
+   * a value), so they are used as usual; a row group whose statistics are out of range is never dropped.
+   */
+  static final class NarrowIntPredicate extends UserDefinedPredicate<Integer> implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    private enum Op {
+      EQ, NOT_EQ, LT, LT_EQ, GT, GT_EQ;
+
+      Op negate() {
+        switch (this) {
+          case EQ:
+            return NOT_EQ;
+          case NOT_EQ:
+            return EQ;
+          case LT:
+            return GT_EQ;
+          case LT_EQ:
+            return GT;
+          case GT:
+            return LT_EQ;
+          default:
+            return LT;
+        }
+      }
+    }
+
+    private final Op op;
+    private final int literal;
+    private final boolean tinyInt;
+
+    private NarrowIntPredicate(Op op, int literal, boolean tinyInt) {
+      this.op = op;
+      this.literal = literal;
+      this.tinyInt = tinyInt;
+    }
+
+    static FilterPredicate of(FunctionDefinition functionDefinition, String columnName, int literal, boolean tinyInt) {
+      Op op;
+      if (BuiltInFunctionDefinitions.EQUALS.equals(functionDefinition)) {
+        op = Op.EQ;
+      } else if (BuiltInFunctionDefinitions.NOT_EQUALS.equals(functionDefinition)) {
+        op = Op.NOT_EQ;
+      } else if (BuiltInFunctionDefinitions.LESS_THAN.equals(functionDefinition)) {
+        op = Op.LT;
+      } else if (BuiltInFunctionDefinitions.LESS_THAN_OR_EQUAL.equals(functionDefinition)) {
+        op = Op.LT_EQ;
+      } else if (BuiltInFunctionDefinitions.GREATER_THAN.equals(functionDefinition)) {
+        op = Op.GT;
+      } else if (BuiltInFunctionDefinitions.GREATER_THAN_OR_EQUAL.equals(functionDefinition)) {
+        op = Op.GT_EQ;
+      } else {
+        throw new AssertionError("Unexpected function definition " + functionDefinition);
+      }
+      return userDefined(intColumn(columnName), new NarrowIntPredicate(op, literal, tinyInt));
+    }
+
+    @Override
+    public boolean keep(Integer value) {
+      if (value == null) {
+        // as Parquet's own eq / notEq do
+        return op == Op.NOT_EQ;
+      }
+      int v = tinyInt ? (byte) value.intValue() : (short) value.intValue();
+      switch (op) {
+        case EQ:
+          return v == literal;
+        case NOT_EQ:
+          return v != literal;
+        case LT:
+          return v < literal;
+        case LT_EQ:
+          return v <= literal;
+        case GT:
+          return v > literal;
+        default:
+          return v >= literal;
+      }
+    }
+
+    @Override
+    public boolean canDrop(Statistics<Integer> statistics) {
+      return canDrop(op, statistics);
+    }
+
+    @Override
+    public boolean inverseCanDrop(Statistics<Integer> statistics) {
+      return canDrop(op.negate(), statistics);
+    }
+
+    private boolean canDrop(Op op, Statistics<Integer> statistics) {
+      int min = statistics.getMin();
+      int max = statistics.getMax();
+      int lowest = tinyInt ? Byte.MIN_VALUE : Short.MIN_VALUE;
+      int highest = tinyInt ? Byte.MAX_VALUE : Short.MAX_VALUE;
+      if (min < lowest || max > highest) {
+        return false;
+      }
+      switch (op) {
+        case EQ:
+          return literal < min || literal > max;
+        case NOT_EQ:
+          return min == literal && max == literal;
+        case LT:
+          return min >= literal;
+        case LT_EQ:
+          return min > literal;
+        case GT:
+          return max <= literal;
+        default:
+          return max < literal;
+      }
+    }
+
+    @Override
+    public String toString() {
+      return "narrow_int(" + op + ", " + literal + ")";
     }
   }
 

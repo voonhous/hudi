@@ -139,7 +139,9 @@ public class ColumnStatsProbe implements Serializable {
       case BOOLEAN:
         return indexRow.getBoolean(pos);
       case TINYINT:
+        return indexRow.getByte(pos);
       case SMALLINT:
+        return indexRow.getShort(pos);
       case INTEGER:
         return indexRow.getInt(pos);
       case FLOAT:

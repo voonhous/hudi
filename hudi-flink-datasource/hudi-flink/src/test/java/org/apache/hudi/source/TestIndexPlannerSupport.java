@@ -22,6 +22,9 @@ import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.expression.Expression;
 import org.apache.hudi.common.expression.Predicates;
 import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
@@ -44,6 +47,7 @@ import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.expressions.ValueLiteralExpression;
 import org.apache.flink.table.functions.BuiltInFunctionDefinition;
 import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
+import org.apache.flink.table.types.logical.RowType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -126,6 +130,38 @@ public class TestIndexPlannerSupport {
         IndexPlannerSupport.translate(Collections.singletonList(mixed), IndexPlannerSupport.schemaOf(TestConfigurations.ROW_TYPE)).get());
 
     assertFalse(IndexPlannerSupport.translate(Collections.singletonList(eq("unknown", 1)), IndexPlannerSupport.schemaOf(TestConfigurations.ROW_TYPE)).isPresent());
+  }
+
+  /**
+   * Filters on TINYINT / SMALLINT columns the schema stores as INT are left out (data-skipping-issues.md, item 9);
+   * those on columns stored as INT8 / INT16 are kept.
+   */
+  @Test
+  void testFiltersOnNarrowIntsStoredAsIntAreLeftOut() {
+    RowType rowType = (RowType) DataTypes.ROW(
+        DataTypes.FIELD("id", DataTypes.INT()),
+        DataTypes.FIELD("f_tiny", DataTypes.TINYINT()),
+        DataTypes.FIELD("f_small", DataTypes.SMALLINT())).notNull().getLogicalType();
+    ResolvedExpression onId = eq("id", 1);
+    ResolvedExpression onTiny = CallExpression.permanent(BuiltInFunctionDefinitions.LESS_THAN,
+        Arrays.asList(new FieldReferenceExpression("f_tiny", DataTypes.TINYINT(), 0, 1),
+            new ValueLiteralExpression((byte) 0, DataTypes.TINYINT().notNull())), DataTypes.BOOLEAN());
+    ResolvedExpression onSmall = CallExpression.permanent(BuiltInFunctionDefinitions.EQUALS,
+        Arrays.asList(new FieldReferenceExpression("f_small", DataTypes.SMALLINT(), 0, 2),
+            new ValueLiteralExpression((short) -1, DataTypes.SMALLINT().notNull())), DataTypes.BOOLEAN());
+    List<ResolvedExpression> filters = Arrays.asList(onId, onTiny, onSmall);
+
+    HoodieSchema storedAsInt = HoodieSchema.createRecord("r", null, null, Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("f_tiny", HoodieSchema.createNullable(HoodieSchema.create(HoodieSchemaType.INT)), null, HoodieSchema.NULL_VALUE),
+        HoodieSchemaField.of("f_small", HoodieSchema.createNullable(HoodieSchema.create(HoodieSchemaType.INT)), null, HoodieSchema.NULL_VALUE)));
+    assertEquals(Collections.singletonList(onId), IndexPlannerSupport.withoutNarrowIntsStoredAsInt(filters, rowType, storedAsInt));
+
+    HoodieSchema narrow = HoodieSchema.createRecord("r", null, null, Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("f_tiny", HoodieSchema.createNullable(HoodieSchema.createInt8()), null, HoodieSchema.NULL_VALUE),
+        HoodieSchemaField.of("f_small", HoodieSchema.createNullable(HoodieSchema.createInt16()), null, HoodieSchema.NULL_VALUE)));
+    assertEquals(filters, IndexPlannerSupport.withoutNarrowIntsStoredAsInt(filters, rowType, narrow));
   }
 
   @Test

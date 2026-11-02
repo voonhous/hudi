@@ -51,7 +51,36 @@ These came up while wiring the engine-neutral index planner (RFC-88 step 5, bran
 
 | # | Engine | Bug | Where |
 |---|---|---|---|
-| 9 | Flink | A table with a `TINYINT` or `SMALLINT` column and no explicit schema stores it as plain `INT32` holding the raw byte pattern: -128 is stored as 128, and -1 as 255 or 65535. Flink reads the values back correctly only because it truncates them; other engines read the stored numbers, and column stats are wrong. `WHERE f_tiny < 0` returns no rows in Flink even with data skipping off, because the Parquet row-group filter prunes on those stats. Reproduced with a probe during RFC-88 step 2b; not fixed (needs the step 2c switch to INT8 / INT16 plus a compatibility path for existing tables). | Flink DDL inference maps TINYINT / SMALLINT to INT (`HoodieSchemaConverter#convertToSchema`) while the Parquet writer writes the Flink value |
+| 9 | Flink | A table whose schema stores a `TINYINT` or `SMALLINT` column as `INT` (no explicit schema, or one that says `int`) stores plain `INT32` holding the raw byte pattern: -128 is stored as 128, and -1 as 255 or 65535. Other engines read the stored numbers, and the column stats are those numbers. `WHERE f_tiny < 0` returns no rows in Flink even with data skipping off, because the Parquet row-group filter prunes on those stats. **New writes are fixed on the RFC-88 branch** (`fix(flink): store TINYINT and SMALLINT values sign extended`); existing files are not, see below. | The sink's rows keep the `TINYINT` / `SMALLINT` layout of the table definition, while the writers (Parquet, Lance, Avro log blocks) read each column with the width of the write schema: a binary row's one- or two-byte value read as an int is zero extended. Fixed in `HoodieTableSink`, which widens these columns to the write schema's integer type first (`NarrowIntWidening`) |
+
+Item 9, what the fix covers and what remains:
+
+- **New writes** (every table, old and new, every write path through the Flink SQL / DataStream sink: upsert, insert,
+  bulk insert, append; COW and MOR; Parquet, Lance and log blocks) store the sign-extended value, so other engines read
+  -1 and the column stats hold -1.
+- **Existing files keep the unsigned values**, and rewriting a file (a COW merge, compaction, clustering) copies them as
+  stored, because those read and write the column as `INT`. Only rewriting the rows through Flink SQL with the
+  `TINYINT` / `SMALLINT` definition (for example `INSERT OVERWRITE ... SELECT`) repairs them. Spark, Hive and other
+  engines keep reading 128 / 255 / 65535 from them; their own stats agree with what they read, so their pruning is not
+  wrong, only the values are.
+- **Flink reads of existing files stay correct where Flink can read the column**: it reads the `INT32` value truncated
+  to `TINYINT` / `SMALLINT`, and truncation gives the same byte for 255 and -1. That is the COW Parquet path. MOR
+  (file group reader, Parquet and log files) and Lance reads of a `TINYINT` / `SMALLINT` column whose table schema
+  says `INT` fail with a `ClassCastException` (`Integer` cannot be cast to `Byte`) on master and still do; this does
+  not depend on the stored values. Tables whose schema has `INT8` / `INT16` (explicit schema, or new tables from
+  RFC-88 step 2c) read on every path.
+- **Stats of existing files**: an old file's stored values are `v & 0xFF` (`v & 0xFFFF`), so its stats lie within
+  -128..127 (-32768..32767) exactly when it holds no negative value, and then they equal the values Flink reads; a file
+  with a negative value has a max of 128 (32768) or more. Flink therefore treats `TINYINT` / `SMALLINT` stats out of
+  the type's range as unknown and keeps the file: in the Parquet row-group filter (`ExpressionPredicates`, a
+  user-defined predicate that compares the truncated values) and in the column stats and partition stats indexes
+  (`FileStatsIndex`). This also covers wider values another engine wrote to the `INT` column, which Flink reads
+  truncated as well. The RFC-88 index planner (non-default modes) does not use filters on `TINYINT` / `SMALLINT`
+  columns stored as `INT` (`IndexPlannerSupport`). Before the fix, the column stats index never pruned on
+  `TINYINT` / `SMALLINT` columns (`ColumnStatsProbe` read their stats with `getInt`, the `ClassCastException` was caught
+  and nothing was pruned); it now prunes with in-range stats.
+- Tested in `ITTestNarrowIntStoredValues`: stored values, Parquet stats, reads and filters with data skipping on and
+  off, for new writes and for a table holding pre-fix files, including a file that merges old and new rows.
 
 **Already tracked in apache/hudi#20449, with one more reproduction**
 
