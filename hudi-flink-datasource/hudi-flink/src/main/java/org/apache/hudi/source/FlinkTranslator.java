@@ -74,8 +74,8 @@ import java.util.List;
  * A column missing from the schema, a NULL literal, or a literal that is not exact in the column type makes the leaf
  * untranslatable.
  *
- * <p>Nothing calls it yet. It later replaces {@link ExpressionUtils} and the evaluator building in
- * {@link ExpressionEvaluators#fromExpression}.
+ * <p>{@link IndexPlannerSupport} uses it for the RFC-88 index planner. It later replaces {@link ExpressionUtils} and
+ * the evaluator building in {@link ExpressionEvaluators#fromExpression}.
  */
 public class FlinkTranslator implements ExpressionTranslator<ResolvedExpression> {
 

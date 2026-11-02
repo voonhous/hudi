@@ -47,6 +47,7 @@ import org.apache.hudi.source.FileIndex;
 import org.apache.hudi.source.HoodieScanContext;
 import org.apache.hudi.source.HoodieSource;
 import org.apache.hudi.source.IncrementalInputSplits;
+import org.apache.hudi.source.IndexPlannerSupport;
 import org.apache.hudi.source.StreamReadMonitoringFunction;
 import org.apache.hudi.source.StreamReadOperator;
 import org.apache.hudi.source.prune.ColumnStatsProbe;
@@ -399,6 +400,8 @@ public class HoodieTableSource extends FileIndexReader implements
     Tuple2<List<ResolvedExpression>, List<ResolvedExpression>> splitFilters = splitExprByPartitionCall(simpleFilters, this.partitionKeys, this.tableRowType);
     this.predicates = ExpressionPredicates.fromExpression(splitFilters.f0);
     this.columnStatsProbe = ColumnStatsProbe.newInstance(splitFilters.f0);
+    // RFC-88 index planner: the filters as a Hudi expression, unless the planner mode is OFF
+    this.columnStatsProbe = IndexPlannerSupport.withPlannerFilter(this.columnStatsProbe, splitFilters.f0, conf, tableRowType);
     this.partitionPruner = createPartitionPruner(splitFilters.f1, columnStatsProbe);
     this.dataBucketFunc = getDataBucketFunc(splitFilters.f0);
     // refuse all the filters now

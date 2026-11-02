@@ -27,6 +27,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.configuration.HadoopConfigurations;
 import org.apache.hudi.index.bucket.BucketIdentifier;
+import org.apache.hudi.metadata.planner.IndexPlannerMode;
 import org.apache.hudi.source.prune.ColumnStatsProbe;
 import org.apache.hudi.source.prune.PartitionPruners;
 import org.apache.hudi.source.stats.BaseRecordLevelIndex;
@@ -76,6 +77,7 @@ public class FileIndex implements Serializable, AutoCloseable {
   private final FileStatsIndex fileStatsIndex;                     // for data skipping
   private final Option<BaseRecordLevelIndex> recordLevelIndex;
   private final HoodieTableMetaClient metaClient;
+  private final IndexPlannerSupport.FilePlanner indexPlanner;      // RFC-88 index planner, null when its mode is OFF
 
   private FileIndex(
       StoragePath path,
@@ -96,6 +98,10 @@ public class FileIndex implements Serializable, AutoCloseable {
     List<ExpressionEvaluators.Evaluator> evaluators = Option.ofNullable(colStatsProbe).map(ColumnStatsProbe::getEvaluators).orElse(Collections.emptyList());
     this.recordLevelIndex = BaseRecordLevelIndex.create(path.toString(), conf, metaClient, evaluators, rowType);
     this.metaClient = metaClient;
+    IndexPlannerMode plannerMode = IndexPlannerSupport.mode(conf);
+    this.indexPlanner = plannerMode == IndexPlannerMode.OFF ? null
+        : new IndexPlannerSupport.FilePlanner(plannerMode, conf, rowType, metaClient, colStatsProbe,
+            this.recordLevelIndex.isPresent(), this.colStatsProbe != null, this.fileStatsIndex);
   }
 
   /**
@@ -189,7 +195,17 @@ public class FileIndex implements Serializable, AutoCloseable {
     if (filteredFileSlices.isEmpty()) {
       return Collections.emptyList();
     }
+    if (indexPlanner != null) {
+      // RFC-88 index planner (COMPARE or ON) for the record index and column stats
+      return indexPlanner.filterFileSlices(filteredFileSlices, this::filterByMetadataIndexes);
+    }
+    return filterByMetadataIndexes(filteredFileSlices);
+  }
 
+  /**
+   * Filter file slices by pruning based on the record index and column stats.
+   */
+  private List<FileSlice> filterByMetadataIndexes(List<FileSlice> filteredFileSlices) {
     // data skipping based on record index
     if (recordLevelIndex.isPresent()) {
       int prevSize = filteredFileSlices.size();

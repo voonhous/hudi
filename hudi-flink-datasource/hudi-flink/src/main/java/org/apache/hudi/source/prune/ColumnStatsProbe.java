@@ -18,6 +18,7 @@
 
 package org.apache.hudi.source.prune;
 
+import org.apache.hudi.common.expression.Expression;
 import org.apache.hudi.source.ExpressionEvaluators;
 import org.apache.hudi.source.stats.ColumnStats;
 import org.apache.hudi.util.ExpressionUtils;
@@ -51,6 +52,18 @@ public class ColumnStatsProbe implements Serializable {
 
   private final String[] referencedCols;
   private final List<ExpressionEvaluators.Evaluator> evaluators;
+  /**
+   * The filters as a Hudi expression, for the RFC-88 index planner; only set when the planner mode is not OFF.
+   */
+  @Nullable
+  private final Expression plannerFilter;
+
+  /**
+   * This probe with the filters translated for the index planner.
+   */
+  public ColumnStatsProbe withPlannerFilter(@Nullable Expression plannerFilter) {
+    return new ColumnStatsProbe(referencedCols, evaluators, plannerFilter);
+  }
 
   /**
    * Filters the index row with specific data filters and query fields.
@@ -87,7 +100,7 @@ public class ColumnStatsProbe implements Serializable {
       return null;
     }
     List<ExpressionEvaluators.Evaluator> evaluators = fromExpression(filters);
-    return new ColumnStatsProbe(referencedCols, evaluators);
+    return new ColumnStatsProbe(referencedCols, evaluators, null);
   }
 
   public static Map<String, ColumnStats> convertColumnStats(RowData indexRow, RowType.RowField[] queryFields) {

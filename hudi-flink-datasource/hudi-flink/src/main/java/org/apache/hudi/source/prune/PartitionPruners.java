@@ -20,8 +20,10 @@ package org.apache.hudi.source.prune;
 
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.configuration.FlinkOptions;
+import org.apache.hudi.metadata.planner.IndexPlannerMode;
 import org.apache.hudi.source.ExpressionEvaluators;
 import org.apache.hudi.source.ExpressionEvaluators.Evaluator;
+import org.apache.hudi.source.IndexPlannerSupport;
 import org.apache.hudi.source.stats.ColumnStats;
 import org.apache.hudi.source.stats.PartitionStatsIndex;
 import org.apache.hudi.table.format.FilePathUtils;
@@ -291,6 +293,11 @@ public class PartitionPruners {
           && conf.get(FlinkOptions.METADATA_ENABLED)) {
         columnStatsPruner = new ColumnStatsPartitionPruner(Objects.requireNonNull(rowType), Objects.requireNonNull(basePath), Objects.requireNonNull(conf),
             probe, metaClient);
+        IndexPlannerMode plannerMode = IndexPlannerSupport.mode(conf);
+        if (plannerMode != IndexPlannerMode.OFF) {
+          // RFC-88 index planner: replaces (ON) or shadows (COMPARE) the partition stats pruner, at its position
+          columnStatsPruner = new IndexPlannerSupport.PartitionStatsPlanner(plannerMode, columnStatsPruner, rowType, basePath, conf, probe, metaClient);
+        }
       }
       List<PartitionPruner> partitionPruners =
           Stream.of(staticPruner, dynamicPruner, columnStatsPruner)
