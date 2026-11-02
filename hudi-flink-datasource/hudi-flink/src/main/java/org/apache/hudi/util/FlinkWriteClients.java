@@ -28,8 +28,10 @@ import org.apache.hudi.common.engine.EngineType;
 import org.apache.hudi.common.model.HoodieCleaningPolicy;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Triple;
 import org.apache.hudi.config.HoodieArchivalConfig;
 import org.apache.hudi.config.HoodieCleanConfig;
@@ -46,6 +48,8 @@ import org.apache.hudi.table.action.compact.CompactionTriggerStrategy;
 
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.configuration.Configuration;
+
+import javax.annotation.Nullable;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -269,6 +273,15 @@ public class FlinkWriteClients {
       writeConfig.setViewStorageConfig(viewStorageConfig);
     }
     return writeConfig;
+  }
+
+  /**
+   * The write schema of the write config, or null if it has none.
+   */
+  @Nullable
+  public static HoodieSchema getWriteSchema(HoodieWriteConfig writeConfig) {
+    String schema = writeConfig.getWriteSchema();
+    return StringUtils.isNullOrEmpty(schema) ? null : HoodieSchema.parse(schema);
   }
 
   /**

@@ -280,6 +280,22 @@ public class TestValueType {
     assertEquals(ValueType.DOUBLE, valueTypeFor(PrimitiveType.PrimitiveTypeName.DOUBLE));
   }
 
+  /**
+   * INT32 + INT(8) / INT(16) (INT8 and INT16 columns, and Spark's ShortType) have integer stats.
+   */
+  @Test
+  public void testFromParquetIntAnnotations() {
+    for (int bitWidth : new int[] {8, 16}) {
+      assertEquals(ValueType.INT, ValueType.fromParquetPrimitiveType(Types.required(PrimitiveType.PrimitiveTypeName.INT32)
+          .as(LogicalTypeAnnotation.intType(bitWidth, true)).named("f")));
+    }
+    // unsigned integers have no value type
+    assertThrows(IllegalArgumentException.class, () -> ValueType.fromParquetPrimitiveType(
+        Types.required(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(16, false)).named("f")));
+    assertEquals(ValueType.INT, new OriginalTypeParquetAdapter().getValueTypeFromAnnotation(
+        Types.required(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(16, true)).named("f")));
+  }
+
   private static ValueType valueTypeFor(PrimitiveType.PrimitiveTypeName name) {
     PrimitiveType type = name == PrimitiveType.PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY
         ? Types.required(name).length(4).named("f")

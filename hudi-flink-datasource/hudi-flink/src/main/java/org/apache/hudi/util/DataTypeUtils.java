@@ -23,16 +23,19 @@ import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.HoodieSchemaUtils;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieCatalogException;
 
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.api.Schema.UnresolvedPhysicalColumn;
 import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.LocalZonedTimestampType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeFamily;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
+import org.apache.flink.table.types.logical.MapType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.TimestampType;
 
@@ -148,11 +151,89 @@ public class DataTypeUtils {
       schemaFields.add(HoodieSchemaUtils.createNewSchemaField(field));
     }
 
-    return HoodieSchema.createRecord(
+    HoodieSchema schema = HoodieSchema.createRecord(
         tableSchema.getName(),
         tableSchema.getNamespace().orElse(null),
         tableSchema.getDoc().orElse(null),
         schemaFields);
+    return restoreNarrowTypes(schema, rowType, tableSchema);
+  }
+
+  /**
+   * Takes INT8, INT16 and CHAR(n) from the table schema where the Flink type is the one they map to (TINYINT,
+   * SMALLINT, CHAR(n)).
+   *
+   * <p>{@link HoodieSchemaConverter#convertToSchema} still maps TINYINT and SMALLINT to INT and CHAR(n) to STRING
+   * (RFC-88 rollout step 2c switches that), while a table whose schema has INT8, INT16 or CHAR(n) stores and reads
+   * them as TINYINT, SMALLINT and CHAR(n). Reading or writing such a table with the converted schema would use the
+   * wrong width, so the table schema's type is taken. Tables without these types are unchanged, and so are columns
+   * whose Flink type is another one (a TINYINT column the table stores as INT stays INT).
+   *
+   * @param converted   the schema converted from {@code flinkType}
+   * @param flinkType   the Flink type
+   * @param tableSchema the table schema, or null
+   * @return the converted schema with INT8, INT16 and CHAR(n) taken from the table schema
+   */
+  public static HoodieSchema restoreNarrowTypes(HoodieSchema converted, LogicalType flinkType, @Nullable HoodieSchema tableSchema) {
+    if (tableSchema == null || (converted.isNullable() && converted.isComplexUnion())) {
+      return converted;
+    }
+    HoodieSchema nonNull = converted.getNonNullType();
+    HoodieSchema restored = restoreNarrowTypesNonNull(nonNull, flinkType, tableSchema.getNonNullType());
+    if (restored == nonNull) {
+      return converted;
+    }
+    return converted.isNullable() ? HoodieSchema.createNullable(restored) : restored;
+  }
+
+  private static HoodieSchema restoreNarrowTypesNonNull(HoodieSchema converted, LogicalType flinkType, HoodieSchema tableSchema) {
+    switch (tableSchema.getType()) {
+      case INT8:
+      case INT16:
+      case CHAR:
+        return HoodieSchemaConverter.convertToDataType(tableSchema).getLogicalType().copy(true).equals(flinkType.copy(true))
+            ? tableSchema : converted;
+      case RECORD: {
+        if (converted.getType() != HoodieSchemaType.RECORD || !(flinkType instanceof RowType)) {
+          return converted;
+        }
+        RowType rowType = (RowType) flinkType;
+        List<HoodieSchemaField> fields = converted.getFields();
+        List<HoodieSchemaField> restoredFields = new ArrayList<>(fields.size());
+        boolean changed = false;
+        for (HoodieSchemaField field : fields) {
+          int index = rowType.getFieldIndex(field.name());
+          Option<HoodieSchemaField> tableField = tableSchema.getField(field.name());
+          HoodieSchema fieldSchema = field.schema();
+          HoodieSchema schema = index < 0 || !tableField.isPresent()
+              ? fieldSchema
+              : restoreNarrowTypes(fieldSchema, rowType.getTypeAt(index), tableField.get().schema());
+          changed |= schema != fieldSchema;
+          restoredFields.add(field.withSchema(schema));
+        }
+        return changed
+            ? HoodieSchema.createRecord(converted.getName(), converted.getNamespace().orElse(null), converted.getDoc().orElse(null), restoredFields)
+            : converted;
+      }
+      case ARRAY: {
+        if (converted.getType() != HoodieSchemaType.ARRAY || !(flinkType instanceof ArrayType)) {
+          return converted;
+        }
+        HoodieSchema elementType = converted.getElementType();
+        HoodieSchema element = restoreNarrowTypes(elementType, ((ArrayType) flinkType).getElementType(), tableSchema.getElementType());
+        return element == elementType ? converted : HoodieSchema.createArray(element);
+      }
+      case MAP: {
+        if (converted.getType() != HoodieSchemaType.MAP || !(flinkType instanceof MapType)) {
+          return converted;
+        }
+        HoodieSchema valueType = converted.getValueType();
+        HoodieSchema value = restoreNarrowTypes(valueType, ((MapType) flinkType).getValueType(), tableSchema.getValueType());
+        return value == valueType ? converted : HoodieSchema.createMap(value);
+      }
+      default:
+        return converted;
+    }
   }
 
   /**

@@ -247,8 +247,8 @@ public class TestFlinkTranslator extends ExpressionTranslatorContractTest<Resolv
   }
 
   /**
-   * INT8 and INT16 columns, which Flink reads as INT, translate as INT columns, and CHAR columns, read as STRING, as
-   * STRING ones; the literals take the column's type.
+   * INT8 and INT16 columns, which Flink reads as TINYINT and SMALLINT, translate with Integer literals (Byte and Short
+   * literals included), and CHAR(n) columns, read as CHAR(n), as STRING ones; the literals take the column's type.
    */
   @Test
   void narrowIntsAndCharTranslateAsIntAndString() {
@@ -259,15 +259,21 @@ public class TestFlinkTranslator extends ExpressionTranslatorContractTest<Resolv
         HoodieSchemaField.of("tiny", HoodieSchema.createNullable(int8)),
         HoodieSchemaField.of("small", int16),
         HoodieSchemaField.of("code", char3)));
-    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("tiny", DataTypes.INT()), lit(5)),
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("tiny", DataTypes.TINYINT()), lit((byte) -5, DataTypes.TINYINT())),
+        Predicates.eq(col("tiny"), new Literal<>(-5, int8)));
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("tiny", DataTypes.TINYINT()), lit(5)),
         Predicates.eq(col("tiny"), new Literal<>(5, int8)));
-    assertTranslates(schema, call(BuiltInFunctionDefinitions.LESS_THAN, field("small", DataTypes.INT()), lit(300L)),
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.LESS_THAN, field("small", DataTypes.SMALLINT()), lit((short) 300, DataTypes.SMALLINT())),
         Predicates.lt(col("small"), new Literal<>(300, int16)));
-    assertNothing(schema, call(BuiltInFunctionDefinitions.EQUALS, field("small", DataTypes.INT()), lit(5_000_000_000L)));
-    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("code", DataTypes.STRING()), lit("ab ", DataTypes.STRING())),
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.LESS_THAN, field("small", DataTypes.SMALLINT()), lit(300L)),
+        Predicates.lt(col("small"), new Literal<>(300, int16)));
+    assertNothing(schema, call(BuiltInFunctionDefinitions.EQUALS, field("small", DataTypes.SMALLINT()), lit(5_000_000_000L)));
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("code", DataTypes.CHAR(3)), lit("ab ", DataTypes.CHAR(3))),
         Predicates.eq(col("code"), new Literal<>("ab ", char3)));
-    assertNothing(schema, call(BuiltInFunctionDefinitions.EQUALS, field("code", DataTypes.STRING()), lit(5)));
-    assertEquals(7, FlinkTranslator.canonicalValue(7, LogicalTypeRoot.TINYINT, int8));
+    assertNothing(schema, call(BuiltInFunctionDefinitions.EQUALS, field("code", DataTypes.CHAR(3)), lit(5)));
+    assertEquals(7, FlinkTranslator.canonicalValue((byte) 7, LogicalTypeRoot.TINYINT, int8));
+    assertEquals(-300, FlinkTranslator.canonicalValue((short) -300, LogicalTypeRoot.SMALLINT, int16));
+    assertEquals("ab ", FlinkTranslator.canonicalValue("ab ", LogicalTypeRoot.CHAR, char3));
   }
 
   @Test

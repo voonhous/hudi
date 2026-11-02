@@ -96,6 +96,55 @@ public class TestDataTypeUtils {
         requiredSchema.getField("missing").get().schema().getNonNullType().getType());
   }
 
+  /**
+   * INT8, INT16 and CHAR(n) come from the table schema where the Flink type is TINYINT, SMALLINT and CHAR(n) (which
+   * convertToSchema maps to INT and STRING), also nested; a Flink type that differs keeps the converted type.
+   */
+  @Test
+  void testRestoreNarrowTypes() {
+    HoodieSchema tableSchema = HoodieSchema.createRecord("t", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createNullable(HoodieSchema.createInt8())),
+        HoodieSchemaField.of("small", HoodieSchema.createInt16()),
+        HoodieSchemaField.of("code", HoodieSchema.createNullable(HoodieSchema.createChar(3))),
+        HoodieSchemaField.of("int_as_tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("other_char", HoodieSchema.createChar(3)),
+        HoodieSchemaField.of("plain", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("nested", HoodieSchema.createArray(HoodieSchema.createRecord("n", "ns", null,
+            Collections.singletonList(HoodieSchemaField.of("v", HoodieSchema.createMap(HoodieSchema.createInt16()))))))));
+    RowType rowType = (RowType) DataTypes.ROW(
+        DataTypes.FIELD("tiny", DataTypes.TINYINT()),
+        DataTypes.FIELD("small", DataTypes.SMALLINT().notNull()),
+        DataTypes.FIELD("code", DataTypes.CHAR(3)),
+        DataTypes.FIELD("int_as_tiny", DataTypes.INT().notNull()),
+        DataTypes.FIELD("other_char", DataTypes.CHAR(4).notNull()),
+        DataTypes.FIELD("plain", DataTypes.TINYINT().notNull()),
+        DataTypes.FIELD("nested", DataTypes.ARRAY(DataTypes.ROW(
+            DataTypes.FIELD("v", DataTypes.MAP(DataTypes.STRING().notNull(), DataTypes.SMALLINT().notNull()).notNull()))
+            .notNull()).notNull()))
+        .notNull().getLogicalType();
+
+    HoodieSchema restored = DataTypeUtils.toHoodieSchema(rowType, tableSchema);
+    assertEquals(HoodieSchema.createNullable(HoodieSchema.createInt8()), restored.getField("tiny").get().schema());
+    assertEquals(HoodieSchema.createInt16(), restored.getField("small").get().schema());
+    assertEquals(HoodieSchema.createNullable(HoodieSchema.createChar(3)), restored.getField("code").get().schema());
+    assertEquals(HoodieSchemaType.INT, restored.getField("int_as_tiny").get().schema().getType());
+    assertEquals(HoodieSchemaType.STRING, restored.getField("other_char").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT, restored.getField("plain").get().schema().getType());
+    HoodieSchema nestedValue = restored.getField("nested").get().schema().getNonNullType().getElementType().getNonNullType()
+        .getField("v").get().schema().getNonNullType().getValueType();
+    assertEquals(HoodieSchema.createInt16(), nestedValue);
+    // the restored columns read back as the row type's TINYINT, SMALLINT and CHAR(3)
+    RowType readType = HoodieSchemaConverter.convertToRowType(restored);
+    for (int i = 0; i < 3; i++) {
+      assertEquals(rowType.getTypeAt(i), readType.getTypeAt(i));
+    }
+
+    // without INT8, INT16 or CHAR in the table schema, or without a table schema, nothing changes
+    HoodieSchema converted = HoodieSchemaConverter.convertToSchema(rowType);
+    assertSame(converted, DataTypeUtils.restoreNarrowTypes(converted, rowType, null));
+    assertSame(converted, DataTypeUtils.restoreNarrowTypes(converted, rowType, converted));
+  }
+
   @Test
   void testTypePredicatesAndPrecision() {
     assertTrue(DataTypeUtils.isTimestampType(DataTypes.TIMESTAMP(3)));

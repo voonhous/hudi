@@ -123,8 +123,8 @@ public class FlinkTranslator implements ExpressionTranslator<ResolvedExpression>
     switch (type) {
       case BOOLEAN:
       case INT:
-      // HoodieSchemaConverter reads INT8 and INT16 as Flink INT and CHAR as Flink STRING, so their values compare as
-      // INT and STRING values do
+      // Flink reads INT8 and INT16 as TINYINT and SMALLINT, whose literals compare as Integers (the column stats are
+      // INT), and CHAR(n) as CHAR(n), which Flink compares with its padding, as STRING values compare
       case INT8:
       case INT16:
       case LONG:

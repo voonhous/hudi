@@ -895,15 +895,16 @@ public class TestHoodieSchemaConverter {
   }
 
   /**
-   * Today's converter reads INT8 and INT16 as Flink INT and CHAR(n) as STRING, as their values are handled, and
-   * Flink's TINYINT, SMALLINT and CHAR still map to INT and STRING (RFC-88 rollout step 2 switches both).
+   * INT8, INT16 and CHAR(n) map to Flink TINYINT, SMALLINT and CHAR(n); Flink's TINYINT, SMALLINT and CHAR still map
+   * to INT and STRING (RFC-88 rollout step 2c switches that direction).
    */
   @Test
-  void testNarrowIntsAndCharAsIntAndString() {
-    assertEquals(DataTypes.INT().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createInt8()));
-    assertEquals(DataTypes.INT().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createInt16()));
-    assertEquals(DataTypes.STRING().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createChar(4)));
-    assertEquals(DataTypes.INT(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createNullable(HoodieSchema.createInt8())));
+  void testNarrowIntsAndChar() {
+    assertEquals(DataTypes.TINYINT().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createInt8()));
+    assertEquals(DataTypes.SMALLINT().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createInt16()));
+    assertEquals(DataTypes.CHAR(4).notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createChar(4)));
+    assertEquals(DataTypes.TINYINT(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createNullable(HoodieSchema.createInt8())));
+    assertEquals(DataTypes.CHAR(10), HoodieSchemaConverter.convertToDataType(HoodieSchema.createNullable(HoodieSchema.createChar(10))));
     assertEquals(HoodieSchemaType.INT, HoodieSchemaConverter.convertToSchema(DataTypes.TINYINT().notNull().getLogicalType()).getType());
     assertEquals(HoodieSchemaType.INT, HoodieSchemaConverter.convertToSchema(DataTypes.SMALLINT().notNull().getLogicalType()).getType());
     assertEquals(HoodieSchemaType.STRING, HoodieSchemaConverter.convertToSchema(DataTypes.CHAR(4).notNull().getLogicalType()).getType());

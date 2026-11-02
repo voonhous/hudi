@@ -167,10 +167,13 @@ public class ClusteringOperator extends TableStreamOperator<ClusteringCommitEven
     this.writeClient = FlinkWriteClients.createWriteClient(conf, getRuntimeContext());
     this.table = writeClient.getHoodieTable();
 
-    this.schema = HoodieSchemaConverter.convertToSchema(
+    this.schema = DataTypeUtils.restoreNarrowTypes(
+        HoodieSchemaConverter.convertToSchema(
+            rowType,
+            HoodieSchemaUtils.getRecordQualifiedName(conf.get(FlinkOptions.TABLE_NAME)),
+            conf.get(FlinkOptions.VECTOR_COLUMNS)),
         rowType,
-        HoodieSchemaUtils.getRecordQualifiedName(conf.get(FlinkOptions.TABLE_NAME)),
-        conf.get(FlinkOptions.VECTOR_COLUMNS));
+        FlinkWriteClients.getWriteSchema(writeConfig));
     // Since there exists discrepancies between flink and spark dealing with nullability of primary key field,
     // and there may be some files written by spark, force update schema as nullable to make sure clustering
     // scan successfully without schema validating exception.

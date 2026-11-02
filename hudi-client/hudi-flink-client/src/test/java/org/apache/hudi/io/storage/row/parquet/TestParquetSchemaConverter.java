@@ -519,4 +519,27 @@ public class TestParquetSchemaConverter {
     }
     return type;
   }
+
+  /**
+   * INT8 and INT16 columns are written as INT32 annotated INT(8) and INT(16), CHAR(n) as a string, and read back as
+   * TINYINT, SMALLINT and STRING.
+   */
+  @Test
+  void testNarrowIntsAndChar() {
+    HoodieSchema schema = HoodieSchema.createRecord("t", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createNullable(HoodieSchema.createInt8())),
+        HoodieSchemaField.of("small", HoodieSchema.createInt16()),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(10))));
+    MessageType messageType = ParquetSchemaConverter.convertToParquetMessageType("flink_schema", schema);
+    assertEquals(Types.optional(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(8, true)).named("tiny"),
+        messageType.getType("tiny"));
+    assertEquals(Types.required(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(16, true)).named("small"),
+        messageType.getType("small"));
+    assertEquals(Types.required(PrimitiveType.PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named("code"),
+        messageType.getType("code"));
+    RowType readType = ParquetSchemaConverter.convertToRowType(messageType);
+    assertEquals(new TinyIntType(), readType.getTypeAt(0));
+    assertEquals(new SmallIntType(false), readType.getTypeAt(1));
+    assertEquals(DataTypes.STRING().notNull().getLogicalType(), readType.getTypeAt(2));
+  }
 }

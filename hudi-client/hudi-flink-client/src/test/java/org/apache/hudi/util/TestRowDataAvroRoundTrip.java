@@ -19,6 +19,7 @@
 package org.apache.hudi.util;
 
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.apache.avro.generic.GenericRecord;
@@ -42,6 +43,7 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -208,5 +210,31 @@ public class TestRowDataAvroRoundTrip {
     expected.put("one", 1);
     expected.put("missing", null);
     assertEquals(expected, actual);
+  }
+
+  /**
+   * A HoodieSchema with INT8, INT16 and CHAR(10) converts to TINYINT, SMALLINT and CHAR(10); their Byte, Short and
+   * padded CHAR values go to Avro as Integers and strings and come back as they were.
+   */
+  @Test
+  public void testNarrowIntsAndCharRoundTrip() {
+    HoodieSchema schema = HoodieSchema.createRecord("Narrow", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createInt16()),
+        HoodieSchemaField.of("code", HoodieSchema.createNullable(HoodieSchema.createChar(10)))));
+    RowType rowType = HoodieSchemaConverter.convertToRowType(schema);
+    assertEquals(DataTypes.TINYINT().notNull().getLogicalType(), rowType.getTypeAt(0));
+    assertEquals(DataTypes.SMALLINT().notNull().getLogicalType(), rowType.getTypeAt(1));
+    assertEquals(DataTypes.CHAR(10).getLogicalType(), rowType.getTypeAt(2));
+
+    GenericRowData input = GenericRowData.of((byte) -128, (short) -32768, StringData.fromString("ab        "));
+    GenericRecord avro = (GenericRecord) RowDataToAvroConverters.createConverter(rowType).convert(schema, input);
+    assertEquals(-128, avro.get("tiny"));
+    assertEquals(-32768, avro.get("small"));
+    assertEquals("ab        ", avro.get("code").toString());
+    RowData output = (RowData) AvroToRowDataConverters.createRowConverter(schema).convert(avro);
+    assertEquals((byte) -128, output.getByte(0));
+    assertEquals((short) -32768, output.getShort(1));
+    assertEquals("ab        ", output.getString(2).toString());
   }
 }

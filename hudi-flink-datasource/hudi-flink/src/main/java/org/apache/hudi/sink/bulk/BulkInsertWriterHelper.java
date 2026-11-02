@@ -32,6 +32,8 @@ import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.io.storage.row.HoodieRowDataCreateHandle;
 import org.apache.hudi.metrics.FlinkStreamWriteMetrics;
 import org.apache.hudi.table.HoodieTable;
+import org.apache.hudi.util.DataTypeUtils;
+import org.apache.hudi.util.FlinkWriteClients;
 import org.apache.hudi.util.HoodieSchemaConverter;
 
 import lombok.Getter;
@@ -107,10 +109,13 @@ public class BulkInsertWriterHelper implements AutoCloseable {
     this.isAppendMode = OptionsResolver.isAppendMode(conf);
     MetaFieldsMode metaFieldsMode = writeConfig.getMetaFieldsMode();
     this.populateMetaFields = metaFieldsMode != MetaFieldsMode.NONE;
-    HoodieSchema schema = HoodieSchemaConverter.convertToSchema(
+    HoodieSchema schema = DataTypeUtils.restoreNarrowTypes(
+        HoodieSchemaConverter.convertToSchema(
+            rowType,
+            HoodieSchemaUtils.getRecordQualifiedName(conf.get(FlinkOptions.TABLE_NAME)),
+            conf.get(FlinkOptions.VECTOR_COLUMNS)),
         rowType,
-        HoodieSchemaUtils.getRecordQualifiedName(conf.get(FlinkOptions.TABLE_NAME)),
-        conf.get(FlinkOptions.VECTOR_COLUMNS));
+        FlinkWriteClients.getWriteSchema(writeConfig));
     this.writerSchema = preserveHoodieMetadata || (isAppendMode && !populateMetaFields)
         ? schema
         : HoodieSchemaUtils.addMetadataFields(schema, writeConfig.allowOperationMetadataField());

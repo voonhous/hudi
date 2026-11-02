@@ -114,12 +114,10 @@ class TestFlinkTypeMapper extends TypeSystemMapperContractTest<DataType> {
         "HoodieSchemaConverter.convertTimestamp maps UTC-adjusted timestamp-micros to TIMESTAMP(6), not TIMESTAMP_LTZ(6) (time zone semantics swapped)");
     gaps.put("expected_output/local_timestamp_micros",
         "HoodieSchemaConverter.convertTimestamp maps local-timestamp-micros to TIMESTAMP_LTZ(6), not TIMESTAMP(6) (time zone semantics swapped)");
-    for (String[] t : new String[][] {{"INT8", "int8", "INT", "TINYINT"}, {"INT16", "int16", "INT", "SMALLINT"},
-        {"CHAR", "char_10", "STRING", "CHAR(n)"}}) {
-      String widened = "HoodieSchemaConverter.convertToDataType maps " + t[0] + " to " + t[2] + ", not " + t[3]
-          + ", and convertToSchema maps " + t[3] + " back to " + t[2];
-      gaps.put("support_expected/" + t[0], widened);
-      gaps.put("expected_output/" + t[1], widened);
+    // RFC-88 rollout step 2c switches the Flink -> HoodieSchema direction; until then the hint restores these types
+    for (String[] t : new String[][] {{"INT8", "TINYINT", "INT"}, {"INT16", "SMALLINT", "INT"}, {"CHAR", "CHAR(n)", "STRING"}}) {
+      gaps.put("support_expected/" + t[0], "HoodieSchemaConverter.convertToSchema maps " + t[1] + " back to " + t[2]
+          + ", not " + t[0]);
     }
     gaps.put("round_trip/union_int_string.*",
         "HoodieSchemaConverter.convertUnion writes a multi-branch union as RAW(Object) instead of failing fast; convertToSchema then throws on RAW");

@@ -458,9 +458,9 @@ public class HoodieSchemaConverter {
       case INT:
         return DataTypes.INT().notNull();
       case INT8:
+        return DataTypes.TINYINT().notNull();
       case INT16:
-        // RFC-88 bug list: INT, as the values are handled today, not TINYINT / SMALLINT
-        return DataTypes.INT().notNull();
+        return DataTypes.SMALLINT().notNull();
       case LONG:
         return DataTypes.BIGINT().notNull();
       case FLOAT:
@@ -472,8 +472,7 @@ public class HoodieSchemaConverter {
       case STRING:
         return DataTypes.STRING().notNull();
       case CHAR:
-        // RFC-88 bug list: STRING, as the values are handled today, not CHAR(n)
-        return DataTypes.STRING().notNull();
+        return DataTypes.CHAR(((HoodieSchema.Char) hoodieSchema).getLength()).notNull();
       case ENUM:
         // Flink doesn't have native enum type, convert to STRING
         return DataTypes.STRING().notNull();
