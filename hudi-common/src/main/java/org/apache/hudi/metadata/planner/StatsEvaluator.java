@@ -47,8 +47,8 @@ public interface StatsEvaluator extends Serializable {
    * Prunes many files at once. Engine-native evaluators (e.g. over a Spark DataFrame) override this.
    *
    * @param filter the filter
-   * @param stats  statistics by file name, then column name; files without an entry are kept
-   * @return the files that might match, plus every file without statistics
+   * @param stats  statistics by file name (or partition path, for partition stats), then column name
+   * @return the keys of {@code stats} that might match; the caller keeps the files that have no entry
    */
   default Set<String> prune(Expression filter, Map<String, Map<String, ColumnRange>> stats) {
     Set<String> kept = new HashSet<>();
