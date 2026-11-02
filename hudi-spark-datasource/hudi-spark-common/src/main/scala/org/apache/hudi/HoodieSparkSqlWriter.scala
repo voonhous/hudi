@@ -430,8 +430,10 @@ class HoodieSparkSqlWriterInternal {
         (s.getName, toScalaOption(s.getNamespace).orNull))
         .getOrElse(getRecordNameAndNamespace(tblName))
 
+      // ByteType, ShortType and CHAR(n) map to INT8, INT16 and CHAR(n) only for a table created with that mapping
+      // (including the one this write has just created); tables created before keep INT and STRING for every column
       val sourceSchema = HoodieSchemaConversionUtils.convertUserStructTypeToHoodieSchema(
-        df.schema, avroRecordName, avroRecordNamespace)
+        df.schema, avroRecordName, avroRecordNamespace, HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(tableConfig))
       val internalSchemaOpt = HoodieSchemaUtils.getLatestTableInternalSchema(hoodieConfig, tableMetaClient).orElse {
         // In case we need to reconcile the schema and schema evolution is enabled,
         // we will force-apply schema evolution to the writer's schema
@@ -856,7 +858,15 @@ class HoodieSparkSqlWriterInternal {
     var schema: String = null
     if (df.schema.nonEmpty) {
       val (structName, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(tableName)
-      schema = HoodieSchemaConversionUtils.convertUserStructTypeToHoodieSchema(df.schema, structName, namespace).toString
+      // the mapping of the table, or of the one this bootstrap creates below
+      val narrowIntAndCharTypes = if (tableConfig != null) {
+        HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(tableConfig)
+      } else {
+        HoodieSchemaConversionUtils.usesNarrowIntAndCharTypesForNewTable(HoodieTableVersion.fromVersionCode(
+          Integer.valueOf(getStringWithAltKeys(parameters, HoodieWriteConfig.WRITE_TABLE_VERSION))))
+      }
+      schema = HoodieSchemaConversionUtils.convertUserStructTypeToHoodieSchema(df.schema, structName, namespace,
+        narrowIntAndCharTypes).toString
     } else {
       schema = HoodieSchema.NULL_SCHEMA.toString
     }

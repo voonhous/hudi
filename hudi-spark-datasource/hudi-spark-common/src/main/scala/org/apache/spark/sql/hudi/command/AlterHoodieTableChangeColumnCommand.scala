@@ -73,7 +73,8 @@ case class AlterHoodieTableChangeColumnCommand(
         }
       })
     val (structName, nameSpace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(tableIdentifier.table)
-    val newSchema = HoodieSchemaConversionUtils.convertUserStructTypeToHoodieSchema(newTableSchema, structName, nameSpace)
+    val newSchema = HoodieSchemaConversionUtils.convertUserStructTypeToHoodieSchema(newTableSchema, structName, nameSpace,
+      HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(hoodieCatalogTable.tableConfig))
 
     // Validate the compatibility between new schema and origin schema.
     validateSchema(newSchema, hoodieCatalogTable.metaClient)

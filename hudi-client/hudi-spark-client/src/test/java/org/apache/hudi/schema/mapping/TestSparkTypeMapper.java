@@ -26,6 +26,8 @@ import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.mapping.TypeSupport;
 import org.apache.hudi.common.schema.mapping.TypeSystemMapper;
 import org.apache.hudi.common.schema.mapping.testkit.TypeSystemMapperContractTest;
+import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.util.Option;
 
 import org.apache.spark.sql.catalyst.util.CharVarcharUtils;
@@ -39,6 +41,7 @@ import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.MetadataBuilder;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.VarcharType;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -59,6 +62,7 @@ import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.LOSSY;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.NATIVE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Runs the RFC-88 mapper contract against {@link SparkTypeMapper}. Expected support and column types follow RFC-99's
@@ -231,24 +235,90 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
   }
 
   /**
-   * Without the marker, Spark's ByteType, ShortType and CHAR(n) still map to INT and STRING, as they do for every
-   * schema written before INT8, INT16 and CHAR existed (RFC-88 rollout step 2c switches them). A marker on a field of
-   * another Spark type is ignored.
+   * A Spark schema without markers: ByteType, ShortType, CharType(n) and Spark's in-schema form of CHAR(n) (StringType
+   * with the raw type in the metadata of the top-level field, nested CHARs included).
+   */
+  private static StructType unmarkedSparkSchema() {
+    StructType withChars = CharVarcharUtils.replaceCharVarcharWithStringInSchema(new StructType(new StructField[] {
+        field("c2", new CharType(3), false),
+        field("cs", new ArrayType(new CharType(4), true), false),
+        field("cm", new MapType(DataTypes.StringType, new CharType(5), true), false),
+        field("n", new StructType(new StructField[] {
+            field("code", new CharType(2), true), field("tiny", DataTypes.ByteType, true)}), true),
+        field("v", new VarcharType(8), true),
+        field("v2", DataTypes.StringType, true)}));
+    StructField[] fields = new StructField[] {
+        field("b", DataTypes.ByteType, false), field("s", DataTypes.ShortType, false), field("c", new CharType(3), false),
+        withChars.apply("c2"), withChars.apply("cs"), withChars.apply("cm"), withChars.apply("n"), withChars.apply("v"),
+        field("v3", new VarcharType(8), true),
+        new StructField("i", DataTypes.IntegerType, false,
+            new MetadataBuilder().putString(HoodieSchema.TYPE_METADATA_FIELD, "INT16").build())};
+    return new StructType(fields);
+  }
+
+  /**
+   * The mapper maps Spark's ByteType, ShortType and CHAR(n) natively, without the marker (RFC-88 rollout step 2c).
+   * VARCHAR(n) maps to STRING (its length is a per-field detail, rule 5). A marker on a field of another Spark type is
+   * ignored.
    */
   @Test
-  void sparkTypesWithoutMarkerReadAsIntAndString() {
-    StructType engine = new StructType(new StructField[] {
-        field("b", DataTypes.ByteType, false), field("s", DataTypes.ShortType, false), field("c", new CharType(3), false),
-        new StructField("c2", DataTypes.StringType, false, CharVarcharUtils.replaceCharVarcharWithStringInSchema(
-            new StructType(new StructField[] {field("x", new CharType(3), false)})).apply("x").metadata()),
-        new StructField("i", DataTypes.IntegerType, false,
-            new MetadataBuilder().putString(HoodieSchema.TYPE_METADATA_FIELD, "INT16").build())});
-    HoodieSchema converted = new SparkTypeMapper().fromTypeSystem(engine, Option.empty());
+  void sparkTypesWithoutMarkerMapNatively() {
+    HoodieSchema converted = new SparkTypeMapper().fromTypeSystem(unmarkedSparkSchema(), Option.empty());
+    assertEquals(HoodieSchema.createInt8(), converted.getField("b").get().schema());
+    assertEquals(HoodieSchema.createInt16(), converted.getField("s").get().schema());
+    assertEquals(HoodieSchema.createChar(3), converted.getField("c").get().schema());
+    assertEquals(HoodieSchema.createChar(3), converted.getField("c2").get().schema());
+    assertEquals(HoodieSchema.createChar(4), converted.getField("cs").get().schema().getElementType().getNonNullType());
+    assertEquals(HoodieSchema.createChar(5), converted.getField("cm").get().schema().getValueType().getNonNullType());
+    HoodieSchema nested = converted.getField("n").get().schema().getNonNullType();
+    assertEquals(HoodieSchema.createChar(2), nested.getField("code").get().schema().getNonNullType());
+    assertEquals(HoodieSchema.createInt8(), nested.getField("tiny").get().schema().getNonNullType());
+    assertEquals(HoodieSchema.create(HoodieSchemaType.STRING), converted.getField("v").get().schema().getNonNullType());
+    assertEquals(HoodieSchema.create(HoodieSchemaType.STRING), converted.getField("v3").get().schema().getNonNullType());
+    assertEquals(HoodieSchemaType.INT, converted.getField("i").get().schema().getType());
+  }
+
+  /**
+   * Today's converter path, which tables created before {@code hoodie.table.type.system.version} keep: without the
+   * marker, ByteType, ShortType and CHAR(n) map to INT and STRING, exactly as before INT8, INT16 and CHAR existed.
+   */
+  @Test
+  void todaysConverterPathKeepsIntAndString() {
+    HoodieSchema converted = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(unmarkedSparkSchema(), "r", "ns");
+    assertEquals(converted, HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(unmarkedSparkSchema(), "r", "ns", false, false));
     assertEquals(HoodieSchemaType.INT, converted.getField("b").get().schema().getType());
     assertEquals(HoodieSchemaType.INT, converted.getField("s").get().schema().getType());
     assertEquals(HoodieSchemaType.STRING, converted.getField("c").get().schema().getType());
     assertEquals(HoodieSchemaType.STRING, converted.getField("c2").get().schema().getType());
+    assertEquals(HoodieSchemaType.STRING, converted.getField("cs").get().schema().getElementType().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.STRING, converted.getField("cm").get().schema().getValueType().getNonNullType().getType());
+    HoodieSchema nested = converted.getField("n").get().schema().getNonNullType();
+    assertEquals(HoodieSchemaType.STRING, nested.getField("code").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.INT, nested.getField("tiny").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.STRING, converted.getField("v").get().schema().getNonNullType().getType());
     assertEquals(HoodieSchemaType.INT, converted.getField("i").get().schema().getType());
+    // the markers written for INT8, INT16 and CHAR(n) still restore them
+    HoodieSchema record = HoodieSchema.createRecord("r", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("b", HoodieSchema.createInt8()), HoodieSchemaField.of("c", HoodieSchema.createChar(2))));
+    assertEquals(record, HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(
+        HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(record), "r", "ns"));
+  }
+
+  /**
+   * Which mapping callers use for a table: the new one for tables with type system version 1, and for tables about to
+   * be created at a table version that keeps the property; today's for the rest.
+   */
+  @Test
+  void callersFollowTheTableTypeSystemVersion() {
+    assertFalse(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(null));
+    assertTrue(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypesForNewTable(HoodieTableVersion.current()));
+    assertTrue(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypesForNewTable(HoodieTableVersion.TEN));
+    assertFalse(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypesForNewTable(HoodieTableVersion.NINE));
+    assertFalse(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypesForNewTable(HoodieTableVersion.SIX));
+    HoodieTableConfig existing = new HoodieTableConfig();
+    assertFalse(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(existing));
+    existing.setValue(HoodieTableConfig.TYPE_SYSTEM_VERSION, "1");
+    assertTrue(HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(existing));
   }
 
   private static StructField field(String name, DataType type, boolean nullable) {

@@ -570,7 +570,8 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     )
 
     val (structName, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(hoodieCatalogTable.tableName)
-    val schema = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(hoodieCatalogTable.tableSchema, structName, namespace)
+    val schema = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(hoodieCatalogTable.tableSchema, structName, namespace,
+      nullable = false, narrowIntAndCharTypes = HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(hoodieCatalogTable.tableConfig))
     val (success, commitInstantTime, _, _, _, _) = HoodieSparkSqlWriter.write(sparkSession.sqlContext, SaveMode.Append, writeParams, enrichedSourceDF,
       schemaFromCatalog = Option.apply(schema))
     if (!success) {
@@ -612,7 +613,8 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     val (structName, nameSpace) = HoodieSchemaConversionUtils
       .getRecordNameAndNamespace(hoodieCatalogTable.tableName)
     HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(
-      new StructType(targetTableSchema), structName, nameSpace)
+      new StructType(targetTableSchema), structName, nameSpace,
+      nullable = false, narrowIntAndCharTypes = HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(hoodieCatalogTable.tableConfig))
   }
 
   /**

@@ -17,10 +17,10 @@
 
 package org.apache.spark.sql.hudi.command
 
-import org.apache.hudi.{DataSourceUtils, HoodieWriterUtils}
+import org.apache.hudi.{DataSourceUtils, HoodieSchemaConversionUtils, HoodieWriterUtils}
 import org.apache.hudi.client.utils.SparkInternalSchemaConverter
 import org.apache.hudi.common.model.{HoodieCommitMetadata, HoodieFailedWritesCleaningPolicy, WriteOperationType}
-import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaUtils}
+import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType, HoodieSchemaUtils}
 import org.apache.hudi.common.schema.internal.InternalSchema
 import org.apache.hudi.common.schema.internal.action.TableChange.ColumnChangeID
 import org.apache.hudi.common.schema.internal.action.TableChanges
@@ -33,23 +33,27 @@ import org.apache.hudi.common.util.{CommitUtils, Option}
 import org.apache.hudi.config.{HoodieArchivalConfig, HoodieCleanConfig}
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.table.HoodieSparkTable
+import org.apache.hudi.util.NarrowIntAndCharTypes
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.avro.HoodieSparkSchemaConverters
 import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogTableType}
+import org.apache.spark.sql.catalyst.util.CharVarcharUtils
 import org.apache.spark.sql.connector.catalog.{TableCatalog, TableChange}
 import org.apache.spark.sql.connector.catalog.TableChange.{AddColumn, DeleteColumn, RemoveProperty, SetProperty}
 import org.apache.spark.sql.hudi.HoodieOptionConfig
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{ArrayType, ByteType, DataType, MapType, Metadata, MetadataBuilder, ShortType, StructType}
 
 import java.net.URI
 import java.util
 import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 import scala.util.control.NonFatal
 
 case class AlterTableCommand(table: CatalogTable, changes: Seq[TableChange], changeType: ColumnChangeID) extends HoodieLeafRunnableCommand with Logging {
@@ -79,7 +83,7 @@ case class AlterTableCommand(table: CatalogTable, changes: Seq[TableChange], cha
     } else {
       historySchema
     }
-    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession)
+    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession, Some(oldSchema), addedColumnTypes)
     logInfo("column replace finished")
   }
 
@@ -126,7 +130,7 @@ case class AlterTableCommand(table: CatalogTable, changes: Seq[TableChange], cha
     } else {
       historySchema
     }
-    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession)
+    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession, Some(oldSchema), addedColumnTypes)
     logInfo("column add finished")
   }
 
@@ -138,7 +142,7 @@ case class AlterTableCommand(table: CatalogTable, changes: Seq[TableChange], cha
     } else {
       historySchema
     }
-    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession)
+    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession, Some(oldSchema), Map.empty)
     logInfo("column delete finished")
   }
 
@@ -177,7 +181,7 @@ case class AlterTableCommand(table: CatalogTable, changes: Seq[TableChange], cha
     } else {
       historySchema
     }
-    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession)
+    AlterTableCommand.commitWithSchema(newSchema, verifiedHistorySchema, table, sparkSession, Some(oldSchema), updatedColumnTypes)
     logInfo("column update finished")
   }
 
@@ -211,6 +215,18 @@ case class AlterTableCommand(table: CatalogTable, changes: Seq[TableChange], cha
     catalog.alterTable(newTable)
     logInfo("table properties change finished")
   }
+
+  /**
+   * The Spark types of the columns this command adds, by full name.
+   */
+  private def addedColumnTypes: Map[String, DataType] =
+    changes.collect { case add: AddColumn => add.fieldNames().mkString(".") -> add.dataType() }.toMap
+
+  /**
+   * The new Spark types of the columns this command changes the type of, by full name.
+   */
+  private def updatedColumnTypes: Map[String, DataType] =
+    changes.collect { case update: TableChange.UpdateColumnType => update.fieldNames().mkString(".") -> update.newDataType() }.toMap
 
   def getInternalSchemaAndHistorySchemaStr(sparkSession: SparkSession): (InternalSchema, String) = {
     val path = AlterTableCommand.getTableLocation(table, sparkSession)
@@ -249,9 +265,34 @@ object AlterTableCommand extends Logging {
     * @param table The hoodie table.
     * @param sparkSession The spark session.
     */
-  def commitWithSchema(internalSchema: InternalSchema, historySchemaStr: String, table: CatalogTable, sparkSession: SparkSession): Unit = {
-    val schema = InternalSchemaConverter.convert(internalSchema, HoodieSchemaUtils.getRecordQualifiedName(table.identifier.table))
+  def commitWithSchema(internalSchema: InternalSchema, historySchemaStr: String, table: CatalogTable, sparkSession: SparkSession): Unit =
+    commitWithSchema(internalSchema, historySchemaStr, table, sparkSession, None, Map.empty)
+
+  /**
+   * Generates a commit with the new schema to change the table's schema.
+   *
+   * InternalSchema has no INT8, INT16 or CHAR(n). For a table that uses them
+   * ([[HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes]]), the committed schema takes them back: an existing
+   * column (renamed or not) from the table's schema before the change, through the column ids of `oldInternalSchema`,
+   * and an added or retyped column from its Spark type in `changedColumnTypes`, by the table's mapping.
+   *
+   * @param oldInternalSchema  the schema before the change
+   * @param changedColumnTypes the Spark types of the columns the change adds or retypes, by full name
+   */
+  def commitWithSchema(internalSchema: InternalSchema, historySchemaStr: String, table: CatalogTable, sparkSession: SparkSession,
+                       oldInternalSchema: scala.Option[InternalSchema], changedColumnTypes: Map[String, DataType]): Unit = {
     val path = getTableLocation(table, sparkSession)
+    val tableMetaClient = HoodieTableMetaClient.builder()
+      .setBasePath(path)
+      .setConf(HadoopFSUtils.getStorageConf(sparkSession.sessionState.newHadoopConf()))
+      .build()
+    val narrowIntAndCharTypes = HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(tableMetaClient.getTableConfig)
+    val convertedSchema = InternalSchemaConverter.convert(internalSchema, HoodieSchemaUtils.getRecordQualifiedName(table.identifier.table))
+    val schema = if (narrowIntAndCharTypes) {
+      restoreNarrowTypes(convertedSchema, internalSchema, oldInternalSchema, changedColumnTypes, tableMetaClient)
+    } else {
+      convertedSchema
+    }
     val jsc = new JavaSparkContext(sparkSession.sparkContext)
     val client = DataSourceUtils.createHoodieClient(
       jsc,
@@ -302,11 +343,124 @@ object AlterTableCommand extends Logging {
     }
     // try to sync to hive
     // drop partition field before call alter table
-    val fullSparkSchema = SparkInternalSchemaConverter.constructSparkSchemaFromInternalSchema(internalSchema)
+    val internalSparkSchema = SparkInternalSchemaConverter.constructSparkSchemaFromInternalSchema(internalSchema)
+    val fullSparkSchema = if (narrowIntAndCharTypes) {
+      withNarrowTypes(internalSparkSchema, HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(schema))
+    } else {
+      internalSparkSchema
+    }
     val dataSparkSchema = new StructType(fullSparkSchema.fields.filter(p => !table.partitionColumnNames.exists(f => sparkSession.sessionState.conf.resolver(f, p.name))))
     alterTableDataSchema(sparkSession, table.identifier.database.getOrElse("default"), table.identifier.table, dataSparkSchema)
     if (existRoTable) alterTableDataSchema(sparkSession, table.identifier.database.getOrElse("default"), table.identifier.table + "_ro", dataSparkSchema)
     if (existRtTable) alterTableDataSchema(sparkSession, table.identifier.database.getOrElse("default"), table.identifier.table + "_rt", dataSparkSchema)
+  }
+
+  private val NARROW_TYPES = java.util.EnumSet.of(HoodieSchemaType.INT8, HoodieSchemaType.INT16, HoodieSchemaType.CHAR)
+
+  /**
+   * The catalog schema built from the InternalSchema (which keeps the column comments), with the types of the columns
+   * the table schema has as INT8, INT16 or CHAR(n): tinyint, smallint and char(n), with their `hudi_type` and Spark
+   * char metadata.
+   */
+  private def withNarrowTypes(internalSparkSchema: StructType, tableSparkSchema: StructType): StructType = {
+    StructType(internalSparkSchema.fields.map { field =>
+      tableSparkSchema.fields.find(_.name == field.name) match {
+        case Some(typed) if hasNarrowInt(typed.dataType) || hasNarrowTypeMetadata(typed.metadata) =>
+          val metadata = new MetadataBuilder().withMetadata(field.metadata)
+          Seq(HoodieSchema.TYPE_METADATA_FIELD, CharVarcharUtils.CHAR_VARCHAR_TYPE_STRING_METADATA_KEY)
+            .filter(typed.metadata.contains)
+            .foreach(key => metadata.putString(key, typed.metadata.getString(key)))
+          field.copy(dataType = typed.dataType, metadata = metadata.build())
+        case _ => field
+      }
+    })
+  }
+
+  private def hasNarrowInt(dataType: DataType): Boolean = dataType match {
+    case ByteType | ShortType => true
+    case ArrayType(elementType, _) => hasNarrowInt(elementType)
+    case MapType(_, valueType, _) => hasNarrowInt(valueType)
+    case struct: StructType => struct.fields.exists(f => hasNarrowInt(f.dataType))
+    case _ => false
+  }
+
+  private def hasNarrowTypeMetadata(metadata: Metadata): Boolean =
+    metadata.contains(CharVarcharUtils.CHAR_VARCHAR_TYPE_STRING_METADATA_KEY) ||
+      Seq(HoodieSchemaType.INT8, HoodieSchemaType.INT16, HoodieSchemaType.CHAR)
+        .exists(t => HoodieSparkSchemaConverters.hasTypeMarker(metadata, t))
+
+  /**
+   * Takes INT8, INT16 and CHAR(n) back into a schema converted from the InternalSchema after a change, wherever it has
+   * the type they become there (INT, STRING): for an added or retyped column from its Spark type, otherwise from the
+   * table's schema before the change at the column's name before the change (InternalSchema keeps column ids across
+   * renames). Columns are named as InternalSchema names them (`a.b`, `arr.element`, `m.value`).
+   */
+  private def restoreNarrowTypes(converted: HoodieSchema,
+                                 internalSchema: InternalSchema,
+                                 oldInternalSchema: scala.Option[InternalSchema],
+                                 changedColumnTypes: Map[String, DataType],
+                                 metaClient: HoodieTableMetaClient): HoodieSchema = {
+    lazy val oldTableSchema = Try(new TableSchemaResolver(metaClient).getTableSchema(false)).toOption
+    val changedSchemas = changedColumnTypes.map { case (name, dataType) =>
+      name -> HoodieSparkSchemaConverters.toHoodieType(dataType, nullable = false, "column", "", Metadata.empty,
+        narrowIntAndCharTypes = true)
+    }
+
+    def lookup(name: String): scala.Option[HoodieSchema] = {
+      changedSchemas.find { case (changed, _) => name == changed || name.startsWith(changed + ".") } match {
+        case Some((changed, changedSchema)) =>
+          walk(changedSchema, name.substring(changed.length).split('.').filter(_.nonEmpty).toList)
+        case None =>
+          val id = internalSchema.findIdByName(name)
+          val oldName = if (id < 0) "" else oldInternalSchema.map(_.findFullName(id)).getOrElse(name)
+          if (oldName.isEmpty) None else oldTableSchema.flatMap(walk(_, oldName.split('.').toList))
+      }
+    }
+
+    def restore(schema: HoodieSchema, name: String): HoodieSchema = {
+      val nonNull = if (schema.isNullable && !schema.isComplexUnion) schema.getNonNullType else schema
+      val restored = nonNull.getType match {
+        case HoodieSchemaType.RECORD =>
+          val fields = nonNull.getFields.asScala.map(f => f -> restore(f.schema(), if (name.isEmpty) f.name() else s"$name.${f.name()}"))
+          if (fields.forall { case (f, s) => s eq f.schema() }) {
+            nonNull
+          } else {
+            HoodieSchema.createRecord(nonNull.getName, nonNull.getNamespace.orElse(null), nonNull.getDoc.orElse(null),
+              fields.map { case (f, s) => f.withSchema(s) }.asJava)
+          }
+        case HoodieSchemaType.ARRAY =>
+          val element = restore(nonNull.getElementType, s"$name.element")
+          if (element eq nonNull.getElementType) nonNull else HoodieSchema.createArray(element)
+        case HoodieSchemaType.MAP =>
+          val value = restore(nonNull.getValueType, s"$name.value")
+          if (value eq nonNull.getValueType) nonNull else HoodieSchema.createMap(value)
+        case HoodieSchemaType.INT | HoodieSchemaType.STRING =>
+          lookup(name).filter(n => NARROW_TYPES.contains(n.getType) && NarrowIntAndCharTypes.widened(n).equals(nonNull))
+            .getOrElse(nonNull)
+        case _ => nonNull
+      }
+      if (restored eq nonNull) schema else if (schema.isNullable && !schema.isComplexUnion) HoodieSchema.createNullable(restored) else restored
+    }
+
+    restore(converted, "")
+  }
+
+  /**
+   * The node at an InternalSchema-style name (`a.b`, `arr.element`, `m.value`) in a schema.
+   */
+  private def walk(schema: HoodieSchema, names: List[String]): scala.Option[HoodieSchema] = {
+    val nonNull = if (schema.isNullable && !schema.isComplexUnion) schema.getNonNullType else schema
+    names match {
+      case Nil => Some(nonNull)
+      case head :: tail => nonNull.getType match {
+        case HoodieSchemaType.RECORD =>
+          val field = nonNull.getField(head)
+          if (field.isPresent) walk(field.get().schema(), tail) else None
+        case HoodieSchemaType.ARRAY if head == "element" => walk(nonNull.getElementType, tail)
+        case HoodieSchemaType.MAP if head == "value" => walk(nonNull.getValueType, tail)
+        case _ => None
+      }
+    }
   }
 
   def alterTableDataSchema(sparkSession: SparkSession, db: String, tableName: String, dataSparkSchema: StructType): Unit = {

@@ -22,12 +22,13 @@ import org.apache.avro.generic.GenericRecord
 import org.apache.hudi.HoodieSparkUtils.sparkAdapter
 import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType, HoodieSchemaUtils}
 import org.apache.hudi.common.schema.internal.HoodieSchemaException
+import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableVersion}
 
 import org.apache.avro.{AvroRuntimeException, Schema}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.avro.HoodieSparkSchemaConverters
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, MetadataBuilder, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, Metadata, MetadataBuilder, StructField, StructType}
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 
 import java.util.Locale
@@ -136,8 +137,33 @@ object HoodieSchemaConversionUtils {
                                       structName: String,
                                       recordNamespace: String,
                                       nullable: Boolean): HoodieSchema = {
+    convertStructTypeToHoodieSchema(structType, structName, recordNamespace, nullable, narrowIntAndCharTypes = false)
+  }
+
+  /**
+   * Converts StructType to HoodieSchema with the mapping of the table the schema is for.
+   *
+   * The overloads without `narrowIntAndCharTypes` use today's mapping (ByteType and ShortType to INT, CHAR and VARCHAR
+   * to STRING, unless a `hudi_type` marker says otherwise), which tables created before
+   * [[HoodieTableConfig.TYPE_SYSTEM_VERSION]] keep. Paths that create or evolve a table's schema pass
+   * [[usesNarrowIntAndCharTypes]] of that table, so new tables get INT8, INT16 and CHAR(n).
+   *
+   * @param structType            Catalyst's StructType or DataType
+   * @param structName            Schema record name
+   * @param recordNamespace       Schema record namespace
+   * @param nullable              Whether the top-level schema should be nullable
+   * @param narrowIntAndCharTypes whether ByteType, ShortType and CHAR(n) map to INT8, INT16 and CHAR(n)
+   * @return HoodieSchema corresponding to the Spark DataType
+   * @throws HoodieSchemaException if conversion fails
+   */
+  def convertStructTypeToHoodieSchema(structType: DataType,
+                                      structName: String,
+                                      recordNamespace: String,
+                                      nullable: Boolean,
+                                      narrowIntAndCharTypes: Boolean): HoodieSchema = {
     try {
-      HoodieSparkSchemaConverters.toHoodieType(structType, nullable, structName, recordNamespace)
+      HoodieSparkSchemaConverters.toHoodieType(structType, nullable, structName, recordNamespace, Metadata.empty,
+        narrowIntAndCharTypes)
     } catch {
       case h: HoodieSchemaException => throw h
       case a: AvroRuntimeException => throw new HoodieSchemaException(a.getMessage, a)
@@ -162,8 +188,39 @@ object HoodieSchemaConversionUtils {
   def convertUserStructTypeToHoodieSchema(structType: StructType,
                                           structName: String,
                                           recordNamespace: String): HoodieSchema = {
+    convertUserStructTypeToHoodieSchema(structType, structName, recordNamespace, narrowIntAndCharTypes = false)
+  }
+
+  /**
+   * [[convertUserStructTypeToHoodieSchema]] with the mapping of the table the schema is for (see
+   * the `convertStructTypeToHoodieSchema` that takes it).
+   */
+  def convertUserStructTypeToHoodieSchema(structType: StructType,
+                                          structName: String,
+                                          recordNamespace: String,
+                                          narrowIntAndCharTypes: Boolean): HoodieSchema = {
     HoodieSparkSchemaConverters.validateCustomTypeStructures(structType)
-    convertStructTypeToHoodieSchema(structType, structName, recordNamespace)
+    convertStructTypeToHoodieSchema(structType, structName, recordNamespace, nullable = false,
+      narrowIntAndCharTypes = narrowIntAndCharTypes)
+  }
+
+  /**
+   * Whether Spark types map to INT8, INT16 and CHAR(n) for this table
+   * ([[HoodieTableConfig#usesNarrowIntAndCharTypes]]); false without a table config.
+   */
+  def usesNarrowIntAndCharTypes(tableConfig: HoodieTableConfig): Boolean =
+    tableConfig != null && tableConfig.usesNarrowIntAndCharTypes()
+
+  /**
+   * Whether a table about to be created at this table version will map Spark types to INT8, INT16 and CHAR(n), for
+   * the paths that convert its schema before `hoodie.properties` exists (CREATE TABLE, CTAS).
+   * [[HoodieTableConfig]] gives every new table the current type system version, and drops it, like every table config
+   * newer than the table, from tables created at an older table version, which keep today's mapping.
+   */
+  def usesNarrowIntAndCharTypesForNewTable(tableVersion: HoodieTableVersion): Boolean = {
+    val since = HoodieTableConfig.TYPE_SYSTEM_VERSION.getSinceVersion
+    HoodieTableConfig.CURRENT_TYPE_SYSTEM_VERSION >= 1 &&
+      (!since.isPresent || tableVersion.greaterThanOrEquals(HoodieTableVersion.fromReleaseVersion(since.get)))
   }
 
   /**

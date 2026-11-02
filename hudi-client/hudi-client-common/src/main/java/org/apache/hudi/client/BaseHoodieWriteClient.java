@@ -103,6 +103,7 @@ import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.table.upgrade.SupportsUpgradeDowngrade;
 import org.apache.hudi.table.upgrade.UpgradeDowngrade;
 import org.apache.hudi.util.CommonClientUtils;
+import org.apache.hudi.util.NarrowIntAndCharTypes;
 
 import com.codahale.metrics.Timer;
 import lombok.Getter;
@@ -373,8 +374,13 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
         metadata.addMetadata(SerDeHelper.LATEST_SCHEMA, newSchemaStr);
         schemasManager.persistHistorySchemaStr(instantTime, SerDeHelper.inheritSchemas(evolvedSchema, historySchemaStr));
       }
-      // update SCHEMA_KEY
-      metadata.addMetadata(SCHEMA_KEY, InternalSchemaConverter.convert(evolvedSchema, schema.getFullName()).toString());
+      // update SCHEMA_KEY. InternalSchema has no INT8, INT16 or CHAR(n): a table that uses them takes them back from the
+      // write schema and its schema before this commit
+      HoodieSchema evolvedTableSchema = InternalSchemaConverter.convert(evolvedSchema, schema.getFullName());
+      if (table.getMetaClient().getTableConfig().usesNarrowIntAndCharTypes()) {
+        evolvedTableSchema = NarrowIntAndCharTypes.restore(evolvedTableSchema, Option.of(schema), schemaUtil.getTableSchemaIfPresent(true));
+      }
+      metadata.addMetadata(SCHEMA_KEY, evolvedTableSchema.toString());
     }
   }
 

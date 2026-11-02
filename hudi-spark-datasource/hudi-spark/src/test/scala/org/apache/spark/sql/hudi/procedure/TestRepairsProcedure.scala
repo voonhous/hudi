@@ -150,6 +150,7 @@ class TestRepairsProcedure extends HoodieSparkProcedureTestBase {
           |[hoodie.table.ordering.fields,ts,null]
           |[hoodie.table.recordkey.fields,id,null]
           |[hoodie.table.type,COPY_ON_WRITE,COPY_ON_WRITE]
+          |[hoodie.table.type.system.version,1,1]
           |[hoodie.table.version,,]
           |[hoodie.timeline.history.path,history,history]
           |[hoodie.timeline.layout.version,,]

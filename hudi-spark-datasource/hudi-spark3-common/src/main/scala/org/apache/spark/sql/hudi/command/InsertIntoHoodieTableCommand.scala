@@ -118,7 +118,8 @@ object InsertIntoHoodieTableCommand extends Logging with ProvidesHoodieConfig wi
       alignNullability = true)
     val df = sparkSession.internalCreateDataFrame(query.execute(), enrichedSchema)
     val (structName, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(catalogTable.tableName)
-    val schema = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(catalogTable.tableSchema, structName, namespace)
+    val schema = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(catalogTable.tableSchema, structName, namespace,
+      nullable = false, narrowIntAndCharTypes = HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(catalogTable.tableConfig))
     val (success, commitInstantTime, _, _, _, _) = HoodieSparkSqlWriter.write(sparkSession.sqlContext, mode, config, df,
       schemaFromCatalog = Option.apply(schema))
 

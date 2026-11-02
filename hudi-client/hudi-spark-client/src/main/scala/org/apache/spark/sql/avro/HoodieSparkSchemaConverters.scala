@@ -62,8 +62,9 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
    * that metadata and becomes plain StringType.
    *
    * Record fields of these types (or arrays and maps of them) also carry the [[HoodieSchema.TYPE_METADATA_FIELD]] marker
-   * (`INT8`, `INT16`, `CHAR(n)`), which [[toHoodieType]] reads to restore them; without it, ByteType and ShortType
-   * still convert to INT and CHAR to STRING, as they do for every schema written before these types existed.
+   * (`INT8`, `INT16`, `CHAR(n)`), which [[toHoodieType]] reads to restore them; without it, today's mapping (the one
+   * of every table created before these types existed) still converts ByteType and ShortType to INT and CHAR to
+   * STRING.
    */
   def toSqlType(hoodieSchema: HoodieSchema): (DataType, Boolean) = {
     val result = toSqlTypeHelper(hoodieSchema, Set.empty)
@@ -96,12 +97,40 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
   def hasTypeMarker(metadata: Metadata, schemaType: HoodieSchemaType): Boolean =
     typeMarker(metadata).exists(_.getType == schemaType)
 
+  /**
+   * Converts a Spark type to a HoodieSchema with today's mapping, which every table created before
+   * [[org.apache.hudi.common.table.HoodieTableConfig#TYPE_SYSTEM_VERSION]] existed keeps: ByteType and ShortType give
+   * INT, CHAR and VARCHAR give STRING, unless a [[HoodieSchema.TYPE_METADATA_FIELD]] marker names INT8, INT16 or
+   * CHAR(n) (see [[toSqlType]]).
+   */
   def toHoodieType(catalystType: DataType,
                    nullable: Boolean = false,
                    recordName: String = "topLevelRecord",
                    nameSpace: String = "",
                    metadata: Metadata = Metadata.empty): HoodieSchema = {
-    toHoodieTypeNested(catalystType, nullable, recordName, nameSpace, metadata, depth = 0)
+    toHoodieType(catalystType, nullable, recordName, nameSpace, metadata, narrowIntAndCharTypes = false)
+  }
+
+  /**
+   * Converts a Spark type to a HoodieSchema.
+   *
+   * @param narrowIntAndCharTypes the mapping of the table the schema is for
+   *                              ([[org.apache.hudi.common.table.HoodieTableConfig#usesNarrowIntAndCharTypes]]).
+   *                              When true, ByteType gives INT8, ShortType INT16, and Spark's CHAR(n) gives CHAR(n),
+   *                              whether it is a `CharType` or, as Spark keeps it in a schema, StringType with the raw
+   *                              type in the [[CharVarcharUtils.CHAR_VARCHAR_TYPE_STRING_METADATA_KEY]] metadata of its
+   *                              top-level field. VARCHAR(n) gives STRING either way: its length is not a type in
+   *                              HoodieSchema (RFC-88, rule 5). When false, this is today's mapping (the other
+   *                              `toHoodieType`). The [[HoodieSchema.TYPE_METADATA_FIELD]] markers are read either way.
+   */
+  def toHoodieType(catalystType: DataType,
+                   nullable: Boolean,
+                   recordName: String,
+                   nameSpace: String,
+                   metadata: Metadata,
+                   narrowIntAndCharTypes: Boolean): HoodieSchema = {
+    val rawType = if (narrowIntAndCharTypes) CharVarcharUtils.getRawType(metadata) else None
+    toHoodieTypeNested(catalystType, nullable, recordName, nameSpace, metadata, 0, narrowIntAndCharTypes, rawType)
   }
 
   /**
@@ -151,15 +180,21 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
                                  recordName: String,
                                  nameSpace: String,
                                  metadata: Metadata,
-                                 depth: Int): HoodieSchema = {
+                                 depth: Int,
+                                 narrow: Boolean,
+                                 rawType: Option[DataType]): HoodieSchema = {
     val schema = catalystType match {
       // Primitive types
       case BooleanType => HoodieSchema.create(HoodieSchemaType.BOOLEAN)
-      // ByteType, ShortType and CHAR read as INT8, INT16 and CHAR(n) only with the marker toSqlType writes for them;
-      // without it they read as INT and STRING, as for every schema written before these types existed.
-      case ByteType if hasTypeMarker(metadata, HoodieSchemaType.INT8) => HoodieSchema.createInt8()
-      case ShortType if hasTypeMarker(metadata, HoodieSchemaType.INT16) => HoodieSchema.createInt16()
+      // With today's mapping, ByteType, ShortType and CHAR read as INT8, INT16 and CHAR(n) only with the marker
+      // toSqlType writes for them; without it they read as INT and STRING, as for every schema written before these
+      // types existed. With the new mapping they read as INT8, INT16 and CHAR(n) with or without it.
+      case ByteType if narrow || hasTypeMarker(metadata, HoodieSchemaType.INT8) => HoodieSchema.createInt8()
+      case ShortType if narrow || hasTypeMarker(metadata, HoodieSchemaType.INT16) => HoodieSchema.createInt16()
       case StringType if hasTypeMarker(metadata, HoodieSchemaType.CHAR) => typeMarker(metadata).get
+      case StringType if narrow && rawType.exists(_.isInstanceOf[CharType]) =>
+        HoodieSchema.createChar(rawType.get.asInstanceOf[CharType].length)
+      case CharType(length) if narrow => HoodieSchema.createChar(length)
       case ByteType | ShortType | IntegerType => HoodieSchema.create(HoodieSchemaType.INT)
       case LongType => HoodieSchema.create(HoodieSchemaType.LONG)
       case DateType => HoodieSchema.createDate()
@@ -206,11 +241,13 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         HoodieSchema.createVector(dimension, elementType)
 
       case ArrayType(elementType, containsNull) =>
-        val elementSchema = toHoodieTypeNested(elementType, containsNull, recordName, nameSpace, metadata, depth + 1)
+        val elementSchema = toHoodieTypeNested(elementType, containsNull, recordName, nameSpace, metadata, depth + 1,
+          narrow, rawType.collect { case ArrayType(rawElementType, _) => rawElementType })
         HoodieSchema.createArray(elementSchema)
 
       case MapType(StringType, valueType, valueContainsNull) =>
-        val valueSchema = toHoodieTypeNested(valueType, valueContainsNull, recordName, nameSpace, metadata, depth + 1)
+        val valueSchema = toHoodieTypeNested(valueType, valueContainsNull, recordName, nameSpace, metadata, depth + 1,
+          narrow, rawType.collect { case MapType(_, rawValueType, _) => rawValueType })
         HoodieSchema.createMap(valueSchema)
 
       case blobStruct: StructType if hasTypeMarker(metadata, HoodieSchemaType.BLOB) && isCanonicalBlobStruct(blobStruct) =>
@@ -240,7 +277,8 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         // those columns share a type ("Duplicate in union").
         if (depth > 0 && canBeUnion(st)) {
           val nonNullUnionFieldTypes = st.map { f =>
-            toHoodieTypeNested(f.dataType, nullable = false, f.name, childNameSpace, f.metadata, depth + 1)
+            toHoodieTypeNested(f.dataType, nullable = false, f.name, childNameSpace, f.metadata, depth + 1,
+              narrow, fieldRawType(narrow, rawType, f))
           }
           val unionFieldTypes = if (nullable) {
             (HoodieSchema.create(HoodieSchemaType.NULL) +: nonNullUnionFieldTypes).asJava
@@ -251,7 +289,8 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         } else {
           // Create record
           val fields = st.map { f =>
-            val fieldSchema = toHoodieTypeNested(f.dataType, f.nullable, f.name, childNameSpace, f.metadata, depth + 1)
+            val fieldSchema = toHoodieTypeNested(f.dataType, f.nullable, f.name, childNameSpace, f.metadata, depth + 1,
+              narrow, fieldRawType(narrow, rawType, f))
             val doc = f.getComment.orNull
             // Match existing Avro SchemaConverters behavior: use NULL_VALUE for nullable unions
             // to avoid serializing "default":null in JSON representation
@@ -279,6 +318,23 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
       HoodieSchema.createNullable(schema)
     } else {
       schema
+    }
+  }
+
+  /**
+   * The raw Spark type of a struct field, for the new mapping only. Spark keeps CHAR(n) and VARCHAR(n) in a schema as
+   * StringType, with the raw type of each top-level field (nested CHARs included) in that field's
+   * [[CharVarcharUtils.CHAR_VARCHAR_TYPE_STRING_METADATA_KEY]] metadata; a nested field takes its part of the raw type
+   * of the field that holds it.
+   */
+  private def fieldRawType(narrow: Boolean, parentRawType: Option[DataType], field: StructField): Option[DataType] = {
+    if (!narrow) {
+      None
+    } else {
+      CharVarcharUtils.getRawType(field.metadata).orElse(parentRawType.flatMap {
+        case rawStruct: StructType => rawStruct.fields.find(_.name == field.name).map(_.dataType)
+        case _ => None
+      })
     }
   }
 

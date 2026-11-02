@@ -25,6 +25,7 @@ import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaUtils;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.AvroOrcUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
@@ -85,7 +86,25 @@ public class HoodieSparkBootstrapSchemaProvider extends HoodieBootstrapSchemaPro
     String structName = tableName + "_record";
     String recordNamespace = "hoodie." + tableName;
 
-    return HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(parquetSchema, structName, recordNamespace);
+    // ByteType, ShortType and CHAR(n) give INT8, INT16 and CHAR(n) only for a table created with that mapping
+    return HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(parquetSchema, structName, recordNamespace, false,
+        usesNarrowIntAndCharTypes(writeConfig, context));
+  }
+
+  /**
+   * Whether the table being bootstrapped maps Spark's ByteType, ShortType and CHAR(n) to INT8, INT16 and CHAR(n); a
+   * table that cannot be loaded keeps today's mapping.
+   */
+  private static boolean usesNarrowIntAndCharTypes(HoodieWriteConfig writeConfig, HoodieEngineContext context) {
+    try {
+      return HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(HoodieTableMetaClient.builder()
+          .setConf(context.getStorageConf().newInstance())
+          .setBasePath(writeConfig.getBasePath())
+          .build()
+          .getTableConfig());
+    } catch (HoodieException e) {
+      return false;
+    }
   }
 
   private static HoodieSchema getBootstrapSourceSchemaOrc(HoodieWriteConfig writeConfig, HoodieEngineContext context, Path filePath) {

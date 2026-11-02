@@ -206,7 +206,9 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
     val metaFieldsConfigs = if (tableVersion.lesserThan(HoodieTableVersion.TEN)) {
       Map("hoodie.populate.meta.fields" -> "true")
     } else {
-      Map("hoodie.table.storage.layout" -> "default")
+      // RFC-88: tables created at version 10 or later record their type system version
+      Map("hoodie.table.storage.layout" -> "default",
+        HoodieTableConfig.TYPE_SYSTEM_VERSION.key -> HoodieTableConfig.CURRENT_TYPE_SYSTEM_VERSION.toString)
     }
     commonConfigs ++ layoutConfigs ++ mergeConfigs ++ metaFieldsConfigs
   }

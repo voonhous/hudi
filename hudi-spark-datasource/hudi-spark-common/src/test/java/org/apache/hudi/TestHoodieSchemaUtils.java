@@ -84,6 +84,33 @@ public class TestHoodieSchemaUtils {
     assertEquals(deduceWriterSchema(wide, null), deduceWriterSchema(wide, source));
   }
 
+  /**
+   * A column of the table the source does not have, filled in by the reconciliation (which goes through
+   * InternalSchema), keeps the table's INT8, INT16 or CHAR(n) type.
+   */
+  @Test
+  void testNarrowIntsAndCharKeptFromTableForMissingColumns() {
+    HoodieSchema table = narrowRecord(HoodieSchema.createInt8(), HoodieSchema.createInt16(), HoodieSchema.createChar(10));
+    HoodieSchema source = HoodieSchema.createRecord("narrow", "ns", null, java.util.Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(10))));
+    HoodieSchema writer = deduceWriterSchema(source, table, true);
+    assertEquals(HoodieSchemaType.INT8, writer.getField("tiny").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT16, writer.getField("small").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchema.createChar(10), writer.getField("code").get().schema());
+    // a table without them is as today
+    HoodieSchema wide = narrowRecord(HoodieSchema.create(HoodieSchemaType.INT), HoodieSchema.create(HoodieSchemaType.INT),
+        HoodieSchema.create(HoodieSchemaType.STRING));
+    HoodieSchema wideSource = HoodieSchema.createRecord("narrow", "ns", null, java.util.Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("tiny", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("code", HoodieSchema.create(HoodieSchemaType.STRING))));
+    writer = deduceWriterSchema(wideSource, wide, true);
+    assertEquals(HoodieSchemaType.INT, writer.getField("small").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.STRING, writer.getField("code").get().schema().getType());
+  }
+
   private static HoodieSchema narrowRecord(HoodieSchema tiny, HoodieSchema small, HoodieSchema code) {
     return HoodieSchema.createRecord("narrow", "ns", null, java.util.Arrays.asList(
         HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),

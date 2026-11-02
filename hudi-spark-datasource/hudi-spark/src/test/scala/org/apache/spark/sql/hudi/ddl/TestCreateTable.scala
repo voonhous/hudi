@@ -196,7 +196,8 @@ class TestCreateTable extends HoodieSparkSqlTestBase with ExtendedParserTestHelp
     val metaFieldsConfigs = if (tableVersion.lesserThan(HoodieTableVersion.TEN)) {
       Map("hoodie.populate.meta.fields" -> "true")
     } else {
-      Map.empty[String, String]
+      // RFC-88: tables created at version 10 or later record their type system version
+      Map(HoodieTableConfig.TYPE_SYSTEM_VERSION.key -> HoodieTableConfig.CURRENT_TYPE_SYSTEM_VERSION.toString)
     }
     commonConfigs ++ layoutConfigs ++ mergeConfigs ++ metaFieldsConfigs
   }

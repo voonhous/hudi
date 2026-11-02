@@ -42,7 +42,7 @@ import java.util.Collections;
  *
  * <p>This step only wraps today's converter, {@code org.apache.spark.sql.avro.HoodieSparkSchemaConverters}, through
  * the entry points callers use ({@link HoodieSchemaConversionUtils#convertHoodieSchemaToDataType} and
- * {@link HoodieSchemaConversionUtils#convertStructTypeToHoodieSchema(DataType, String, String, boolean)}), and adds
+ * {@link HoodieSchemaConversionUtils#convertStructTypeToHoodieSchema(DataType, String, String, boolean, boolean)}), and adds
  * the hint: {@link #fromTypeSystem} restores the types Spark drops from the table schema with
  * {@link HoodieSchemaHints#restore}. Once callers switch over (RFC-88 rollout step 2), this class replaces
  * {@code HoodieSparkSchemaConverters} and {@code SparkFilterHelper.convertDataType}, and
@@ -56,10 +56,15 @@ import java.util.Collections;
  *
  * <p>INT8, INT16 and CHAR(n) map to Spark's own types: {@code ByteType}, {@code ShortType} and CHAR(n), which inside a
  * {@code StructType} is {@code StringType} with the raw type {@code char(n)} in the field metadata (Spark's
- * {@code CharVarcharUtils} form). Until {@code HoodieSparkSchemaConverters.toHoodieType} maps these Spark types to
- * them directly (RFC-88 rollout step 2c; today they give INT and STRING, as for every schema written before the types
- * existed), the way back is the {@value HoodieSchema#TYPE_METADATA_FIELD} marker ({@code INT8}, {@code INT16},
- * {@code CHAR(n)}) the converter writes on a record field of these types, or an array or map of one.
+ * {@code CharVarcharUtils} form). {@link #fromTypeSystem} maps them back natively, with or without the
+ * {@value HoodieSchema#TYPE_METADATA_FIELD} marker ({@code INT8}, {@code INT16}, {@code CHAR(n)}) the converter writes
+ * on a record field of these types, or an array or map of one. VARCHAR(n) maps to STRING (RFC-88, rule 5).
+ *
+ * <p>The mapper is stateless and always uses this mapping, the one of tables created with
+ * {@code hoodie.table.type.system.version} 1. Which mapping a table uses is its callers' business: paths that write to a
+ * table created before that property existed keep today's converter path
+ * ({@link HoodieSchemaConversionUtils#convertStructTypeToHoodieSchema(DataType, String, String, boolean, boolean)} with
+ * {@code false}), where ByteType and ShortType give INT and CHAR gives STRING.
  *
  * <p>There are no options yet: {@link MappingOptions} are accepted and ignored, which is today's behaviour.
  */
@@ -99,7 +104,7 @@ public class SparkTypeMapper implements TypeSystemMapper<DataType> {
         namespace = h.getNamespace().orElse(DEFAULT_RECORD_NAMESPACE);
       }
     }
-    HoodieSchema converted = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(type, name, namespace, false);
+    HoodieSchema converted = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(type, name, namespace, false, true);
     return HoodieSchemaHints.restore(converted, hint, t -> support(t).isLossy(), this::image, HoodieSchemaEquivalence.Mode.LOGICAL);
   }
 

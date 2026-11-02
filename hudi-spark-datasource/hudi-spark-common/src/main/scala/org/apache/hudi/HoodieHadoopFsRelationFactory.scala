@@ -18,7 +18,7 @@
 
 package org.apache.hudi
 
-import org.apache.hudi.HoodieBaseRelation.{convertToHoodieSchema, isSchemaEvolutionEnabledOnRead}
+import org.apache.hudi.HoodieBaseRelation.{convertInternalSchema, convertToHoodieSchema, isSchemaEvolutionEnabledOnRead}
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.cdc.HoodieCDCFileIndex
 import org.apache.hudi.common.config.HoodieReaderConfig
@@ -146,11 +146,12 @@ abstract class HoodieBaseHadoopFsRelationFactory(val sqlContext: SQLContext,
 
     val (name, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(tableName)
     val schema: HoodieSchema = internalSchemaOpt.map { is =>
-      InternalSchemaConverter.convert(is, namespace + "." + name)
+      convertInternalSchema(is, namespace + "." + name, HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(metaClient.getTableConfig),
+        specifiedQueryTimestamp.map(schemaResolver.getTableSchema).getOrElse(schemaResolver.getTableSchema))
     } orElse {
       specifiedQueryTimestamp.map(schemaResolver.getTableSchema)
     } orElse {
-      schemaSpec.map(s => convertToHoodieSchema(s, tableName))
+      schemaSpec.map(s => convertToHoodieSchema(s, tableName, HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(metaClient.getTableConfig)))
     } getOrElse {
       Try(schemaResolver.getTableSchema) match {
         case Success(schema) => schema

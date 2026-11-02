@@ -17,7 +17,7 @@
 
 package org.apache.hudi
 
-import org.apache.hudi.HoodieBaseRelation.{convertToHoodieSchema, createHFileReader, isSchemaEvolutionEnabledOnRead, metaFieldNames, projectSchema, sparkAdapter, BaseFileReader}
+import org.apache.hudi.HoodieBaseRelation.{convertInternalSchema, convertToHoodieSchema, createHFileReader, isSchemaEvolutionEnabledOnRead, metaFieldNames, projectSchema, sparkAdapter, BaseFileReader}
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.client.utils.SparkInternalSchemaConverter
 import org.apache.hudi.common.avro.HoodieAvroUtils
@@ -45,6 +45,7 @@ import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.hadoop.fs.HadoopFSUtils.convertToStoragePath
 import org.apache.hudi.io.storage.HoodieSparkIOFactory
 import org.apache.hudi.storage.{StoragePath, StoragePathInfo}
+import org.apache.hudi.util.NarrowIntAndCharTypes
 
 import org.apache.avro.generic.GenericRecord
 import org.apache.hadoop.conf.Configuration
@@ -65,7 +66,7 @@ import org.apache.spark.sql.execution.datasources.orc.OrcFileFormat
 import org.apache.spark.sql.execution.datasources.parquet.LegacyHoodieParquetFileFormat
 import org.apache.spark.sql.hudi.{HoodieSqlCommonUtils, ProvidesHoodieConfig}
 import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{Metadata, StructType}
 
 import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
@@ -137,6 +138,12 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
    * NOTE: Initialization of teh following members is coupled on purpose to minimize amount of I/O
    *       required to fetch table's Avro and Internal schemas
    */
+  /**
+   * Whether this table maps Spark's ByteType, ShortType and CHAR(n) to INT8, INT16 and CHAR(n).
+   */
+  protected lazy val narrowIntAndCharTypes: Boolean =
+    HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes(metaClient.getTableConfig)
+
   protected lazy val (tableSchema: HoodieSchema, internalSchemaOpt: Option[InternalSchema]) = {
     val schemaResolver = new TableSchemaResolver(metaClient)
     val internalSchemaOpt = if (!isSchemaEvolutionEnabledOnRead(optParams, sparkSession)) {
@@ -155,11 +162,12 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
 
     val (name, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(tableName)
     val schema: HoodieSchema = internalSchemaOpt.map { is =>
-      InternalSchemaConverter.convert(is, namespace + "." + name)
+      convertInternalSchema(is, namespace + "." + name, narrowIntAndCharTypes,
+        specifiedQueryTimestamp.map(schemaResolver.getTableSchema).getOrElse(schemaResolver.getTableSchema))
     } orElse {
       specifiedQueryTimestamp.map(schemaResolver.getTableSchema)
     } orElse {
-      schemaSpec.map(s => convertToHoodieSchema(s, tableName))
+      schemaSpec.map(s => convertToHoodieSchema(s, tableName, narrowIntAndCharTypes))
     } getOrElse {
       Try(schemaResolver.getTableSchema) match {
         case Success(schema) => schema
@@ -502,7 +510,7 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
         StructType(requiredDataSchema.structTypeSchema.fields
           .filterNot(f => unusedMandatoryColumnNames.contains(f.name)))
 
-      HoodieTableSchema(prunedStructSchema, convertToHoodieSchema(prunedStructSchema, tableName))
+      HoodieTableSchema(prunedStructSchema, convertToHoodieSchema(prunedStructSchema, tableName, narrowIntAndCharTypes))
     }
 
     val requiredSchemaReaderSkipMerging = createBaseFileReader(
@@ -637,9 +645,9 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
 
       (partitionSchema,
         HoodieTableSchema(prunedDataStructSchema,
-          convertToHoodieSchema(prunedDataStructSchema, tableName), prunedDataInternalSchema),
+          convertToHoodieSchema(prunedDataStructSchema, tableName, narrowIntAndCharTypes), prunedDataInternalSchema),
         HoodieTableSchema(prunedRequiredStructSchema,
-          convertToHoodieSchema(prunedRequiredStructSchema, tableName), prunedRequiredInternalSchema))
+          convertToHoodieSchema(prunedRequiredStructSchema, tableName, narrowIntAndCharTypes), prunedRequiredInternalSchema))
     } else {
       (StructType(Nil), tableSchema, requiredSchema)
     }
@@ -683,9 +691,35 @@ object HoodieBaseRelation extends SparkAdapterSupport {
     def apply(file: PartitionedFile): Iterator[InternalRow] = read.apply(file)
   }
 
-  def convertToHoodieSchema(structSchema: StructType, tableName: String ): HoodieSchema = {
+  def convertToHoodieSchema(structSchema: StructType, tableName: String ): HoodieSchema =
+    convertToHoodieSchema(structSchema, tableName, narrowIntAndCharTypes = false)
+
+  /**
+   * The table schema of a table read with schema on read, from its [[InternalSchema]]. InternalSchema has no INT8,
+   * INT16 or CHAR(n); a table that uses them takes them back from its schema at the same instant.
+   */
+  def convertInternalSchema(internalSchema: InternalSchema, fullName: String, narrowIntAndCharTypes: Boolean,
+                            tableSchemaAtInstant: => HoodieSchema): HoodieSchema = {
+    val converted = InternalSchemaConverter.convert(internalSchema, fullName)
+    if (!narrowIntAndCharTypes) {
+      converted
+    } else {
+      Try(tableSchemaAtInstant).toOption.filter(_ != null)
+        .map(tableSchema => NarrowIntAndCharTypes.restoreFrom(converted, tableSchema))
+        .getOrElse(converted)
+    }
+  }
+
+  /**
+   * Converts a Spark schema of the table (the catalog's, or a projection of the table's) with the table's mapping
+   * ([[HoodieSchemaConversionUtils.usesNarrowIntAndCharTypes]]): a catalog column added by ALTER TABLE has no
+   * `hudi_type` marker, so only the table's mapping keeps a TINYINT, SMALLINT or CHAR(n) column of a new table INT8,
+   * INT16 or CHAR(n).
+   */
+  def convertToHoodieSchema(structSchema: StructType, tableName: String, narrowIntAndCharTypes: Boolean): HoodieSchema = {
     val (recordName, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(tableName)
-    HoodieSparkSchemaConverters.toHoodieType(structSchema, nullable = false, recordName, namespace)
+    HoodieSparkSchemaConverters.toHoodieType(structSchema, nullable = false, recordName, namespace, Metadata.empty,
+      narrowIntAndCharTypes)
   }
 
   def getPartitionPath(fileStatus: FileStatus): Path =

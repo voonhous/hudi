@@ -49,7 +49,7 @@ import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.MultipartIdenti
 import org.apache.spark.sql.execution.datasources.SparkSchemaTransformUtils
 import org.apache.spark.sql.execution.datasources.parquet.ParquetSchemaEvolutionUtils.pruneInternalSchema
 import org.apache.spark.sql.sources._
-import org.apache.spark.sql.types.{ArrayType, AtomicType, BinaryType, DataType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, AtomicType, BinaryType, ByteType, DataType, IntegerType, MapType, ShortType, StructType}
 
 import java.time.ZoneId
 
@@ -113,7 +113,8 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
       // shouldUseInternalSchema implies a non-empty projection, so querySchemaOption is pruned here.
       ParquetSchemaEvolutionUtils.validateNoShreddedVariants(requiredSchema, querySchemaOption.get(), footerFileMetaData)
       val mergedInternalSchema = new InternalSchemaMerger(fileSchema, querySchemaOption.get(), true, true).mergeSchema()
-      val mergedSchema = SparkInternalSchemaConverter.constructSparkSchemaFromInternalSchema(mergedInternalSchema)
+      val mergedSchema = withNarrowIntTypes(
+        SparkInternalSchemaConverter.constructSparkSchemaFromInternalSchema(mergedInternalSchema), mergedInternalSchema)
 
       setRequestedSchema(mergedSchema)
 
@@ -137,6 +138,37 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
     // Row-group level push-down, not individual records
     pushedFilter.foreach(ParquetInputFormat.setFilterPredicate(fileOwnConf(), _))
     fileReadConf
+  }
+
+  /**
+   * InternalSchema has no INT8 or INT16, so the schema merged from it requests IntegerType for a column the query
+   * reads as ByteType or ShortType (a TINYINT or SMALLINT column of a table that uses them); the column is requested
+   * as the query's type instead, which the Parquet readers read from INT32 natively, so the vectors match the
+   * query. Columns are matched by id, nested fields by name.
+   */
+  private def withNarrowIntTypes(merged: StructType, mergedInternalSchema: InternalSchema): StructType = {
+    val query = querySchemaOption.get()
+    val fields = merged.fields.map { field =>
+      val id = mergedInternalSchema.findIdByName(field.name)
+      val queryName = if (id < 0) "" else query.findFullName(id)
+      requiredSchema.fields.find(_.name == queryName)
+        .map(required => field.copy(dataType = narrowedTo(field.dataType, required.dataType)))
+        .getOrElse(field)
+    }
+    if (fields.sameElements(merged.fields)) merged else StructType(fields)
+  }
+
+  private def narrowedTo(read: DataType, query: DataType): DataType = (read, query) match {
+    case (IntegerType, ByteType | ShortType) => query
+    case (ArrayType(readElement, containsNull), ArrayType(queryElement, _)) =>
+      ArrayType(narrowedTo(readElement, queryElement), containsNull)
+    case (MapType(key, readValue, containsNull), MapType(_, queryValue, _)) =>
+      MapType(key, narrowedTo(readValue, queryValue), containsNull)
+    case (readStruct: StructType, queryStruct: StructType) =>
+      StructType(readStruct.fields.map { f =>
+        queryStruct.fields.find(_.name == f.name).map(q => f.copy(dataType = narrowedTo(f.dataType, q.dataType))).getOrElse(f)
+      })
+    case _ => read
   }
 
   def generateUnsafeProjection(fullSchema: Seq[AttributeReference], timeZoneId: Option[String]): UnsafeProjection = {
