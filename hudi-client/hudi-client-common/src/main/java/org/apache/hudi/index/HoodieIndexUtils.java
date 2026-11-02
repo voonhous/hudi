@@ -144,7 +144,10 @@ public class HoodieIndexUtils {
     // Check basic types
     switch (schema.getType()) {
       case STRING:
+      case CHAR:
       case INT:
+      case INT8:
+      case INT16:
       case LONG:
       case DOUBLE:
       case FLOAT:

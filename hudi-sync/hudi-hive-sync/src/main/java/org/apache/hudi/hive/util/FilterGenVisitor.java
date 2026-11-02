@@ -110,11 +110,12 @@ public class FilterGenVisitor implements ExpressionVisitor<String> {
     }
 
     HoodieSchemaType type = literalExpr.getDataType().getType();
-    if (type == HoodieSchemaType.STRING) {
+    // CHAR and INT8 / INT16 partition columns are synced as string and int, so their literals render as those
+    if (type.isStringLike()) {
       return quoteStringLiteral(((Literal<String>)literalExpr).getValue());
     }
 
-    if (type == HoodieSchemaType.INT || type == HoodieSchemaType.LONG || type == HoodieSchemaType.DATE) {
+    if (type.isIntLike() || type == HoodieSchemaType.LONG || type == HoodieSchemaType.DATE) {
       return literalExpr.getValue().toString();
     }
 

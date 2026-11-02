@@ -128,10 +128,14 @@ public class HmsRenderer implements ExpressionRenderer<String> {
   protected ExpressionSupport supportType(HoodieSchemaType type) {
     switch (type) {
       case INT:
+      case INT8:
+      case INT16:
       case LONG:
       case STRING:
       case DATE:
         return ExpressionSupport.supported();
+      case CHAR:
+        return ExpressionSupport.unsupported("the metastore compares partition values as stored strings, engines compare CHAR ignoring trailing spaces");
       default:
         return ExpressionSupport.unsupported("the metastore filter grammar has string, integral and date literals only, so FilterGenVisitor pushes INT, LONG, DATE and STRING");
     }
@@ -207,7 +211,12 @@ public class HmsRenderer implements ExpressionRenderer<String> {
       return true;
     }
     Option<HoodieSchemaField> field = partitionSchema.getField(column);
-    return field.isPresent() && field.get().schema().getNonNullType().getType() == literalType.getType();
+    if (!field.isPresent()) {
+      return false;
+    }
+    HoodieSchemaType columnType = field.get().schema().getNonNullType().getType();
+    // INT8, INT16 and INT partition columns are all synced as int, and their literals are all Integers
+    return columnType == literalType.getType() || (columnType.isIntLike() && literalType.getType().isIntLike());
   }
 
   private Option<String> renderLiteral(Literal<?> literal) {
@@ -220,6 +229,8 @@ public class HmsRenderer implements ExpressionRenderer<String> {
       case STRING:
         return value instanceof CharSequence ? quoteString(value.toString()) : Option.empty();
       case INT:
+      case INT8:
+      case INT16:
         return value instanceof Integer ? Option.of(value.toString()) : Option.empty();
       case LONG:
         return value instanceof Long || value instanceof Integer ? Option.of(value.toString()) : Option.empty();

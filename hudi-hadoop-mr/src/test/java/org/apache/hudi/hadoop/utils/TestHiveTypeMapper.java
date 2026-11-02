@@ -45,7 +45,8 @@ import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.LOSSY;
  *
  * <p>RFC-99 has no Hive column, so the expected support follows RFC-88 ("Hive: VECTOR, UUID and FIXED as binary,
  * ENUM as string, BLOB as struct") and is NATIVE wherever Hive has the type. Hive has no time or variant type and its
- * timestamp has neither a precision nor a time zone flag, so TIME, VARIANT and TIMESTAMP are LOSSY too.
+ * timestamp has neither a precision nor a time zone flag, so TIME, VARIANT and TIMESTAMP are LOSSY too. INT8, INT16
+ * and CHAR(n) are NATIVE: Hive has tinyint, smallint and char(n).
  */
 class TestHiveTypeMapper extends TypeSystemMapperContractTest<TypeInfo> {
 
@@ -75,6 +76,11 @@ class TestHiveTypeMapper extends TypeSystemMapperContractTest<TypeInfo> {
     gaps.put(SUPPORT_EXPECTED + "/VECTOR", String.format(unsupported, "VECTOR", "binary"));
     gaps.put(SUPPORT_EXPECTED + "/BLOB", String.format(unsupported, "BLOB", "a struct"));
     gaps.put(SUPPORT_EXPECTED + "/VARIANT", String.format(unsupported, "VARIANT", "a struct"));
+    String widened = "HiveTypeUtils maps %s to Hive %s, not %s, and Hive's TypeInfoToSchema reads %s back as %s";
+    gaps.put(SUPPORT_EXPECTED + "/INT8", String.format(widened, "INT8", "int", "tinyint", "tinyint", "a plain int"));
+    gaps.put(SUPPORT_EXPECTED + "/INT16", String.format(widened, "INT16", "int", "smallint", "smallint", "a plain int"));
+    gaps.put(SUPPORT_EXPECTED + "/CHAR", String.format(widened, "CHAR(n)", "string", "char(n)", "char(n)",
+        "Hive's own {\"logicalType\":\"char\",\"maxLength\":n}, which is STRING"));
     // Hive types have no NOT NULL, and HoodieSchemaHints never restores nullability from the hint, so every case with
     // a required column, struct field, array element or map value reads back nullable. Types that fail fast are exempt.
     for (SchemaSamples.SchemaCase c : SchemaSamples.allCases()) {

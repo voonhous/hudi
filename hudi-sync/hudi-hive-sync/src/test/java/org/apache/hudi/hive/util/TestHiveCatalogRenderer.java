@@ -148,6 +148,29 @@ class TestHiveCatalogRenderer {
     assertFalse(RENDERER.diff(schema, drifted, partitionFields, opts).isEmpty());
   }
 
+  /**
+   * INT8 and INT16 render as int and CHAR(n) as string, the columns Hive sync writes for them today, so a table synced
+   * before is in sync.
+   */
+  @Test
+  void narrowIntsAndCharRenderAsTodaysColumns() {
+    HoodieSchema schema = HoodieSchema.createRecord("trips", "test", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(3)),
+        HoodieSchemaField.of("dt", HoodieSchema.create(HoodieSchemaType.STRING))));
+    List<String> partitionFields = Collections.singletonList("dt");
+    List<FieldSchema> rendered = RENDERER.render(schema, partitionFields, SyncOptions.DEFAULT);
+    Map<String, String> types = new LinkedHashMap<>();
+    rendered.forEach(c -> types.put(c.getName(), c.getType()));
+    assertEquals("int", types.get("tiny"));
+    assertEquals("int", types.get("small"));
+    assertEquals("string", types.get("code"));
+    List<FieldSchema> metastore = Arrays.asList(new FieldSchema("tiny", "INT", ""), new FieldSchema("small", "INT", ""),
+        new FieldSchema("code", "STRING", ""), new FieldSchema("dt", "STRING", ""));
+    assertTrue(RENDERER.diff(schema, metastore, partitionFields, SyncOptions.DEFAULT).isEmpty());
+  }
+
   @Test
   void isRegistered() {
     assertTrue(CatalogSchemaRenderers.catalogs().contains(CatalogSchemaRenderers.HIVE));

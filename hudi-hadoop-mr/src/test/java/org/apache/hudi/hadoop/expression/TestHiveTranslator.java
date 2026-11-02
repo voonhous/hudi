@@ -218,6 +218,36 @@ class TestHiveTranslator extends ExpressionTranslatorContractTest<ExprNodeDesc> 
     assertNothing(call(new GenericUDFOPNull(), intAsString));
   }
 
+  /**
+   * INT8 and INT16 columns, which HiveTypeUtils reads as Hive int, translate as INT columns, and CHAR columns, read
+   * as Hive string, as STRING ones; their literals take the column's type.
+   */
+  @Test
+  void narrowIntsAndCharTranslateAsIntAndString() {
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    HoodieSchema schema = HoodieSchema.createRecord("t", null, null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createNullable(int8)),
+        HoodieSchemaField.of("small", int16),
+        HoodieSchemaField.of("code", char3)));
+    assertTranslates(schema, call(new GenericUDFOPEqual(), column("tiny", TypeInfoFactory.intTypeInfo), intConstant(5)),
+        Predicates.eq(ref("tiny"), new Literal<>(5, int8)));
+    // Hive tinyint / smallint columns (e.g. synced by Spark) read the same Integer values
+    assertTranslates(schema, call(new GenericUDFOPEqual(), column("small", TypeInfoFactory.shortTypeInfo), intConstant(300)),
+        Predicates.eq(ref("small"), new Literal<>(300, int16)));
+    assertNothing(schema, call(new GenericUDFOPEqual(), column("small", TypeInfoFactory.intTypeInfo),
+        new ExprNodeConstantDesc(TypeInfoFactory.doubleTypeInfo, 1.5d)));
+    assertTranslates(schema, call(new GenericUDFOPEqual(), column("code", TypeInfoFactory.stringTypeInfo),
+        new ExprNodeConstantDesc(TypeInfoFactory.stringTypeInfo, "ab ")), Predicates.eq(ref("code"), new Literal<>("ab ", char3)));
+    // a Hive char column compares without its padding, so it is not translated, as for STRING
+    assertNothing(schema, call(new GenericUDFOPEqual(), column("code", TypeInfoFactory.getCharTypeInfo(3)),
+        new ExprNodeConstantDesc(TypeInfoFactory.stringTypeInfo, "ab ")));
+    assertTrue(TRANSLATOR.support(Expression.Operator.LT, HoodieSchemaType.INT8).isSupported());
+    assertTrue(TRANSLATOR.support(Expression.Operator.EQ, HoodieSchemaType.CHAR).isSupported());
+    assertFalse(TRANSLATOR.support(Expression.Operator.STARTS_WITH, HoodieSchemaType.CHAR).isSupported());
+  }
+
   @Test
   void literalsMustConvertExactly() {
     // numeric constants of another Hive type

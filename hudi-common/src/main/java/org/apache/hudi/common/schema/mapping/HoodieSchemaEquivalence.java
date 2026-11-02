@@ -140,6 +140,9 @@ public final class HoodieSchemaEquivalence {
           check(path, "vector storage backing", ev.getStorageBacking(), av.getStorageBacking(), diffs);
         }
         break;
+      case CHAR:
+        check(path, "char length", ((HoodieSchema.Char) e).getLength(), ((HoodieSchema.Char) a).getLength(), diffs);
+        break;
       case VARIANT:
         HoodieSchema.Variant evar = (HoodieSchema.Variant) e;
         HoodieSchema.Variant avar = (HoodieSchema.Variant) a;
@@ -149,7 +152,7 @@ public final class HoodieSchemaEquivalence {
         }
         break;
       default:
-        // BOOLEAN, INT, LONG, FLOAT, DOUBLE, STRING, BYTES, DATE, UUID, BLOB, NULL: the type is all there is.
+        // BOOLEAN, INT8, INT16, INT, LONG, FLOAT, DOUBLE, STRING, BYTES, DATE, UUID, BLOB, NULL: the type is all there is.
         break;
     }
   }

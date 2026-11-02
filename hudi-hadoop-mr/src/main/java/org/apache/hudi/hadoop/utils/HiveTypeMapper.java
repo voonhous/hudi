@@ -104,6 +104,12 @@ public final class HiveTypeMapper implements TypeSystemMapper<TypeInfo> {
       case TIMESTAMP:
         return TypeSupport.lossy("TIMESTAMP(MICROS) and LOCAL_TIMESTAMP(MICROS) stored as Hive bigint; LOCAL_TIMESTAMP(MILLIS) stored as Hive "
             + "timestamp, read back as TIMESTAMP(MILLIS); only TIMESTAMP(MILLIS) is exact");
+      case INT8:
+        return TypeSupport.lossy("INT8 stored as Hive int, not tinyint (HiveTypeUtils maps it as INT)");
+      case INT16:
+        return TypeSupport.lossy("INT16 stored as Hive int, not smallint (HiveTypeUtils maps it as INT)");
+      case CHAR:
+        return TypeSupport.lossy("CHAR(n) stored as Hive string, not char(n) (HiveTypeUtils maps it as STRING)");
       case UUID:
       case VARIANT:
       case BLOB:

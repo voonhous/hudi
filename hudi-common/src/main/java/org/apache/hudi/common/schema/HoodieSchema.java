@@ -307,6 +307,9 @@ public class HoodieSchema implements Serializable {
     LogicalTypes.register(VariantLogicalType.VARIANT_LOGICAL_TYPE_NAME, new VariantLogicalTypeFactory());
     LogicalTypes.register(BlobLogicalType.BLOB_LOGICAL_TYPE_NAME, new BlobLogicalTypeFactory());
     LogicalTypes.register(VectorLogicalType.VECTOR_LOGICAL_TYPE_NAME, new VectorLogicalTypeFactory());
+    LogicalTypes.register(IntLogicalType.INT8_LOGICAL_TYPE_NAME, new IntLogicalTypeFactory(IntLogicalType.int8()));
+    LogicalTypes.register(IntLogicalType.INT16_LOGICAL_TYPE_NAME, new IntLogicalTypeFactory(IntLogicalType.int16()));
+    LogicalTypes.register(CharLogicalType.CHAR_LOGICAL_TYPE_NAME, new CharLogicalTypeFactory());
   }
 
   /**
@@ -359,6 +362,8 @@ public class HoodieSchema implements Serializable {
         return new HoodieSchema.Blob(avroSchema);
       } else if (logicalType instanceof VectorLogicalType) {
         return new HoodieSchema.Vector(avroSchema);
+      } else if (logicalType instanceof CharLogicalType) {
+        return new HoodieSchema.Char(avroSchema);
       }
     }
     return new HoodieSchema(avroSchema);
@@ -406,10 +411,15 @@ public class HoodieSchema implements Serializable {
     ValidationUtils.checkArgument(type != HoodieSchemaType.DECIMAL, () -> "Decimal precision and scale must be specified");
     ValidationUtils.checkArgument(type != HoodieSchemaType.TIME, () -> "Time precision must be specified");
     ValidationUtils.checkArgument(type != HoodieSchemaType.TIMESTAMP, () -> "Timestamp precision must be specified");
+    ValidationUtils.checkArgument(type != HoodieSchemaType.CHAR, () -> "Char length must be specified");
     if (type == HoodieSchemaType.DATE) {
       return createDate();
     } else if (type == HoodieSchemaType.UUID) {
       return createUUID();
+    } else if (type == HoodieSchemaType.INT8) {
+      return createInt8();
+    } else if (type == HoodieSchemaType.INT16) {
+      return createInt16();
     }
 
     Schema.Type avroType = type.toAvroType();
@@ -734,6 +744,44 @@ public class HoodieSchema implements Serializable {
     Schema dateSchema = Schema.create(Schema.Type.INT);
     LogicalTypes.date().addToSchema(dateSchema);
     return new HoodieSchema(dateSchema);
+  }
+
+  /**
+   * Creates a schema representing an 8-bit signed integer (SQL TINYINT): Avro {@code int} with the Hudi logical type
+   * {@code int8}, i.e. {@code {"type":"int","logicalType":"int8"}}. Values are {@link Integer}s, as for INT.
+   *
+   * @return a new HoodieSchema of type {@link HoodieSchemaType#INT8}
+   */
+  public static HoodieSchema createInt8() {
+    Schema int8Schema = Schema.create(Schema.Type.INT);
+    IntLogicalType.int8().addToSchema(int8Schema);
+    return new HoodieSchema(int8Schema);
+  }
+
+  /**
+   * Creates a schema representing a 16-bit signed integer (SQL SMALLINT): Avro {@code int} with the Hudi logical type
+   * {@code int16}, i.e. {@code {"type":"int","logicalType":"int16"}}. Values are {@link Integer}s, as for INT.
+   *
+   * @return a new HoodieSchema of type {@link HoodieSchemaType#INT16}
+   */
+  public static HoodieSchema createInt16() {
+    Schema int16Schema = Schema.create(Schema.Type.INT);
+    IntLogicalType.int16().addToSchema(int16Schema);
+    return new HoodieSchema(int16Schema);
+  }
+
+  /**
+   * Creates a schema representing a fixed-length character string {@code CHAR(length)}: Avro {@code string} with the
+   * Hudi logical type {@code char}, i.e. {@code {"type":"string","logicalType":"char","length":10}}. Values are
+   * strings, as for STRING, and keep whatever padding they have.
+   *
+   * @param length the declared length in characters, positive
+   * @return a new {@link HoodieSchema.Char}
+   */
+  public static HoodieSchema.Char createChar(int length) {
+    Schema charSchema = Schema.create(Schema.Type.STRING);
+    new CharLogicalType(length).addToSchema(charSchema);
+    return new HoodieSchema.Char(charSchema);
   }
 
   /**
@@ -2504,6 +2552,197 @@ public class HoodieSchema implements Serializable {
     @Override
     public String getTypeName() {
       return VectorLogicalType.VECTOR_LOGICAL_TYPE_NAME;
+    }
+  }
+
+  /**
+   * Hudi logical types {@code int8} and {@code int16} for Avro {@code int} schemas: signed integers narrower than 32
+   * bits, {@link HoodieSchemaType#INT8} and {@link HoodieSchemaType#INT16}.
+   *
+   * <p>The names follow the other Hudi logical types ({@code variant}, {@code blob}, {@code vector}): the lower-case
+   * {@link HoodieSchemaType} name. They also match Arrow's {@code Int8} / {@code Int16}, the {@code INT8} element type
+   * of VECTOR and Kafka Connect's {@code int8} / {@code int16}. A reader that does not know them (Avro without Hudi's
+   * registration, or Hudi before these types) ignores the property and reads the column as a plain {@code int}.
+   *
+   * <p>Two singletons, compared by identity like {@link VariantLogicalType#variant()}.
+   */
+  public static final class IntLogicalType extends LogicalType {
+    private static final String INT8_LOGICAL_TYPE_NAME = "int8";
+    private static final String INT16_LOGICAL_TYPE_NAME = "int16";
+    private static final IntLogicalType INT8 = new IntLogicalType(INT8_LOGICAL_TYPE_NAME, 8);
+    private static final IntLogicalType INT16 = new IntLogicalType(INT16_LOGICAL_TYPE_NAME, 16);
+
+    private final int bitWidth;
+
+    private IntLogicalType(String name, int bitWidth) {
+      super(name);
+      this.bitWidth = bitWidth;
+    }
+
+    public static IntLogicalType int8() {
+      return INT8;
+    }
+
+    public static IntLogicalType int16() {
+      return INT16;
+    }
+
+    /**
+     * @return 8 or 16
+     */
+    public int getBitWidth() {
+      return bitWidth;
+    }
+
+    @Override
+    public void validate(Schema schema) {
+      super.validate(schema);
+      if (schema.getType() != Schema.Type.INT) {
+        throw new IllegalArgumentException(getName() + " logical type can only be applied to INT schemas, got: " + schema.getType());
+      }
+    }
+  }
+
+  /**
+   * Factory for the {@code int8} and {@code int16} logical types.
+   */
+  private static class IntLogicalTypeFactory implements LogicalTypes.LogicalTypeFactory {
+    private final IntLogicalType logicalType;
+
+    IntLogicalTypeFactory(IntLogicalType logicalType) {
+      this.logicalType = logicalType;
+    }
+
+    @Override
+    public LogicalType fromSchema(Schema schema) {
+      return logicalType;
+    }
+
+    @Override
+    public String getTypeName() {
+      return logicalType.getName();
+    }
+  }
+
+  /**
+   * Hudi logical type {@code char} for Avro {@code string} schemas: {@code CHAR(length)},
+   * {@link HoodieSchemaType#CHAR}. The length is stored in the {@code length} property, the SQL name of the
+   * parameter, as Avro's {@code fixed} stores {@code size}.
+   *
+   * <p>Hive's AvroSerDe writes {@code {"logicalType":"char","maxLength":n}}. That form has no {@code length}, so
+   * {@link CharLogicalTypeFactory} does not take it and the column stays STRING, as it is today (where
+   * {@code HiveTypeUtils} still reads it as Hive char(n)). A reader that does not know {@code char} reads the column
+   * as a plain {@code string}.
+   */
+  public static final class CharLogicalType extends LogicalType {
+    private static final String CHAR_LOGICAL_TYPE_NAME = "char";
+    private static final String PROP_LENGTH = "length";
+
+    private final int length;
+
+    public CharLogicalType(int length) {
+      super(CHAR_LOGICAL_TYPE_NAME);
+      ValidationUtils.checkArgument(length > 0, () -> "Char length must be positive: " + length);
+      this.length = length;
+    }
+
+    public int getLength() {
+      return length;
+    }
+
+    @Override
+    public Schema addToSchema(Schema schema) {
+      super.addToSchema(schema);
+      schema.addProp(PROP_LENGTH, length);
+      return schema;
+    }
+
+    @Override
+    public void validate(Schema schema) {
+      super.validate(schema);
+      if (schema.getType() != Schema.Type.STRING) {
+        throw new IllegalArgumentException("Char logical type can only be applied to STRING schemas, got: " + schema.getType());
+      }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      return o instanceof CharLogicalType && ((CharLogicalType) o).length == length;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(CHAR_LOGICAL_TYPE_NAME, length);
+    }
+  }
+
+  /**
+   * Factory for the {@code char} logical type. A {@code char} schema without an integer {@code length}, such as Hive's
+   * {@code {"logicalType":"char","maxLength":n}}, is not Hudi's: the factory returns null, which Avro treats like an
+   * unknown logical type (no logical type, the property kept, no warning), so the schema reads as STRING. A
+   * non-positive length is invalid: Avro logs a warning and ignores the logical type.
+   */
+  private static class CharLogicalTypeFactory implements LogicalTypes.LogicalTypeFactory {
+    @Override
+    public LogicalType fromSchema(Schema schema) {
+      Object length = schema.getObjectProp(CharLogicalType.PROP_LENGTH);
+      if (!(length instanceof Integer)) {
+        return null;
+      }
+      return new CharLogicalType((Integer) length);
+    }
+
+    @Override
+    public String getTypeName() {
+      return CharLogicalType.CHAR_LOGICAL_TYPE_NAME;
+    }
+  }
+
+  /**
+   * {@code CHAR(length)}: a string column with a declared length, {@link HoodieSchemaType#CHAR}.
+   *
+   * <p>CHAR is a type, not a property of STRING (RFC-88, type plane rule 5): Spark and Hive pad its values to the
+   * length and compare them ignoring trailing spaces. Hudi stores the values as given, padding included, and treats
+   * them as strings everywhere a value is handled.
+   */
+  public static class Char extends HoodieSchema {
+    private final int length;
+
+    private Char(Schema avroSchema) {
+      super(avroSchema);
+      LogicalType logicalType = avroSchema.getLogicalType();
+      if (!(logicalType instanceof CharLogicalType)) {
+        throw new IllegalArgumentException("Char schema does not have a char logical type: " + avroSchema);
+      }
+      this.length = ((CharLogicalType) logicalType).getLength();
+    }
+
+    /**
+     * @return the declared length in characters
+     */
+    public int getLength() {
+      return length;
+    }
+
+    @Override
+    public HoodieSchemaType getType() {
+      return HoodieSchemaType.CHAR;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (o == null || getClass() != o.getClass()) {
+        return false;
+      }
+      if (!super.equals(o)) {
+        return false;
+      }
+      return length == ((Char) o).length;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(super.hashCode(), length);
     }
   }
 

@@ -45,9 +45,12 @@ public class Conversions {
           Type.TypeID.STRING));
 
   // The HoodieSchema types of SUPPORTED_PARTITION_TYPES: DECIMAL covers the three decimal type ids, and
-  // ENUM is read as STRING, as InternalSchemaConverter maps it.
+  // ENUM and CHAR are read as STRING and INT8 and INT16 as INT, as InternalSchemaConverter maps them.
   private static final Set<HoodieSchemaType> SUPPORTED_PARTITION_SCHEMA_TYPES = EnumSet.of(
       HoodieSchemaType.INT,
+      HoodieSchemaType.INT8,
+      HoodieSchemaType.INT16,
+      HoodieSchemaType.CHAR,
       HoodieSchemaType.LONG,
       HoodieSchemaType.BOOLEAN,
       HoodieSchemaType.FLOAT,

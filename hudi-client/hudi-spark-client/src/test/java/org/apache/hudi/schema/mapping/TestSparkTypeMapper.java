@@ -18,14 +18,17 @@
 
 package org.apache.hudi.schema.mapping;
 
+import org.apache.hudi.HoodieSchemaConversionUtils;
 import org.apache.hudi.HoodieSparkUtils;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.mapping.TypeSupport;
 import org.apache.hudi.common.schema.mapping.TypeSystemMapper;
 import org.apache.hudi.common.schema.mapping.testkit.TypeSystemMapperContractTest;
+import org.apache.hudi.common.util.Option;
 
 import org.apache.spark.sql.types.ArrayType;
+import org.apache.spark.sql.types.CharType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
@@ -33,6 +36,7 @@ import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -48,11 +52,13 @@ import static org.apache.hudi.common.schema.HoodieSchemaType.VARIANT;
 import static org.apache.hudi.common.schema.HoodieSchemaType.VECTOR;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.LOSSY;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.NATIVE;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Runs the RFC-88 mapper contract against {@link SparkTypeMapper}. Expected support and column types follow RFC-99's
  * interoperability table ("Apache Spark Type") and RFC-88 section 1, arrow (4): TIMESTAMP(3) read back as micros,
- * TIME as long, UUID and ENUM as string, FIXED as binary, VECTOR as array and BLOB as struct are LOSSY.
+ * TIME as long, UUID and ENUM as string, FIXED as binary, VECTOR as array and BLOB as struct are LOSSY. INT8, INT16
+ * and CHAR(n) are NATIVE: ByteType, ShortType (RFC-99 TINYINT / SMALLINT) and CharType(n).
  */
 class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
 
@@ -85,6 +91,9 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
     Map<String, DataType> types = new HashMap<>();
     types.put("boolean", DataTypes.BooleanType);
     types.put("int", DataTypes.IntegerType);
+    types.put("int8", DataTypes.ByteType);
+    types.put("int16", DataTypes.ShortType);
+    types.put("char_10", new CharType(10));
     types.put("long", DataTypes.LongType);
     types.put("float", DataTypes.FloatType);
     types.put("double", DataTypes.DoubleType);
@@ -150,6 +159,14 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
     gaps.put("marker_declared/UUID", String.format(noMarker, "UUID", "STRING"));
     gaps.put("marker_declared/TIME", String.format(noMarker, "TIME", "INT / LONG"));
     gaps.put("marker_declared/TIMESTAMP", String.format(noMarker, "TIMESTAMP(millis)", "TIMESTAMP(micros)"));
+    for (String[] t : new String[][] {{"INT8", "int8", "IntegerType", "ByteType"}, {"INT16", "int16", "IntegerType", "ShortType"},
+        {"CHAR", "char_10", "StringType", "CharType(n)"}}) {
+      String widened = "HoodieSparkSchemaConverters.toSqlType maps " + t[0] + " to " + t[2] + ", not " + t[3]
+          + ", and toHoodieType maps " + t[3] + " back to " + (t[0].equals("CHAR") ? "STRING" : "INT");
+      gaps.put("support_expected/" + t[0], widened);
+      gaps.put("expected_output/" + t[1], widened);
+      gaps.put("marker_declared/" + t[0], String.format(noMarker, t[0], t[0].equals("CHAR") ? "STRING" : "INT"));
+    }
     gaps.put("expected_output/time_millis",
         "HoodieSparkSchemaConverters.toSqlType maps TIME(millis) to IntegerType (millis), RFC-99 asks LongType (micros)");
     if (!SPARK_4) {
@@ -158,6 +175,25 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
               + " hudi_type=VARIANT marker that toHoodieType already reads");
     }
     return gaps;
+  }
+
+  /**
+   * Today's converter reads INT8 and INT16 as IntegerType and CHAR(n) as StringType, as their values are handled, and
+   * Spark's types still map to INT and STRING (RFC-88 rollout step 2 switches both).
+   */
+  @Test
+  void narrowIntsAndCharReadAsIntegerAndString() {
+    assertEquals(DataTypes.IntegerType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createInt8()));
+    assertEquals(DataTypes.IntegerType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createInt16()));
+    assertEquals(DataTypes.StringType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createChar(10)));
+    assertEquals(DataTypes.LongType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(
+        HoodieSchema.createUnion(HoodieSchema.createInt16(), HoodieSchema.create(HoodieSchemaType.LONG))));
+    StructType engine = new StructType(new StructField[] {
+        field("b", DataTypes.ByteType, false), field("s", DataTypes.ShortType, false), field("c", new CharType(3), false)});
+    HoodieSchema converted = new SparkTypeMapper().fromTypeSystem(engine, Option.empty());
+    assertEquals(HoodieSchemaType.INT, converted.getField("b").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT, converted.getField("s").get().schema().getType());
+    assertEquals(HoodieSchemaType.STRING, converted.getField("c").get().schema().getType());
   }
 
   private static StructField field(String name, DataType type, boolean nullable) {

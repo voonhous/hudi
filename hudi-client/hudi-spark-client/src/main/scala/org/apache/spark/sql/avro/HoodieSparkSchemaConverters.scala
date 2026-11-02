@@ -255,7 +255,10 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
     hoodieSchema.getType match {
       // Primitive types
       case HoodieSchemaType.INT => SchemaType(IntegerType, nullable = false)
-      case HoodieSchemaType.STRING | HoodieSchemaType.ENUM => SchemaType(StringType, nullable = false)
+      // RFC-88 bug list: INT8 and INT16 read as IntegerType and CHAR(n) as StringType, as their values are handled
+      // today, not as ByteType, ShortType and CharType(n)
+      case HoodieSchemaType.INT8 | HoodieSchemaType.INT16 => SchemaType(IntegerType, nullable = false)
+      case HoodieSchemaType.STRING | HoodieSchemaType.ENUM | HoodieSchemaType.CHAR => SchemaType(StringType, nullable = false)
       case HoodieSchemaType.BOOLEAN => SchemaType(BooleanType, nullable = false)
       case HoodieSchemaType.BYTES | HoodieSchemaType.FIXED => SchemaType(BinaryType, nullable = false)
       case HoodieSchemaType.DOUBLE => SchemaType(DoubleType, nullable = false)
@@ -383,7 +386,7 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
           types.map(_.getType).toSeq match {
             case Seq(t) =>
               toSqlTypeHelper(types.head, existingRecordNames)
-            case Seq(t1, t2) if Set(t1, t2) == Set(HoodieSchemaType.INT, HoodieSchemaType.LONG) =>
+            case Seq(t1, t2) if Set(t1, t2).contains(HoodieSchemaType.LONG) && Set(t1, t2).exists(_.isIntLike) =>
               SchemaType(LongType, nullable = false)
             case Seq(t1, t2) if Set(t1, t2) == Set(HoodieSchemaType.FLOAT, HoodieSchemaType.DOUBLE) =>
               SchemaType(DoubleType, nullable = false)

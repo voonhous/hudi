@@ -64,6 +64,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.function.UnaryOperator;
 
+import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -137,6 +138,35 @@ public class TestHoodieArrayWritableSchemaUtils {
     Writable expected = HoodieHiveUtils.getDateWriteable(HoodieAvroUtils.fromJavaDate(Date.valueOf("2023-01-01")));
     assertEquals(expected, result);
     validateRewriteWithAvro(oldWritable, oldSchema, result, newSchema);
+  }
+
+  /**
+   * INT8 and INT16 values are IntWritables and CHAR values Text, as for INT and STRING: they widen as INT and STRING
+   * do, and a file column written as plain INT32 / STRING reads for an INT8 / INT16 / CHAR table column as is.
+   */
+  @Test
+  void testRewriteNarrowIntsAndChar() {
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    HoodieSchema int32 = HoodieSchema.create(HoodieSchemaType.INT);
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    HoodieSchema string = HoodieSchema.create(HoodieSchemaType.STRING);
+    IntWritable i = new IntWritable(42);
+    assertEquals(i, HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int8, int8));
+    assertEquals(i, HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int8, int16));
+    assertEquals(i, HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int16, int32));
+    assertEquals(i, HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int32, int8));
+    assertEquals(new LongWritable(42), HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int8, HoodieSchema.create(HoodieSchemaType.LONG)));
+    assertEquals(new FloatWritable(42), HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int16, HoodieSchema.create(HoodieSchemaType.FLOAT)));
+    assertEquals(new DoubleWritable(42), HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int8, HoodieSchema.create(HoodieSchemaType.DOUBLE)));
+    assertEquals(new Text("42"), HoodieArrayWritableSchemaUtils.rewritePrimaryType(i, int16, string));
+    Text t = new Text("ab ");
+    assertEquals(t, HoodieArrayWritableSchemaUtils.rewritePrimaryType(t, char3, char3));
+    assertEquals(t, HoodieArrayWritableSchemaUtils.rewritePrimaryType(t, char3, HoodieSchema.createChar(5)));
+    assertEquals(t, HoodieArrayWritableSchemaUtils.rewritePrimaryType(t, char3, string));
+    assertEquals(t, HoodieArrayWritableSchemaUtils.rewritePrimaryType(t, string, char3));
+    assertEquals(new BytesWritable(getUTF8Bytes("ab ")), HoodieArrayWritableSchemaUtils.rewritePrimaryType(t, char3, HoodieSchema.create(HoodieSchemaType.BYTES)));
+    assertThrows(HoodieSchemaException.class, () -> HoodieArrayWritableSchemaUtils.rewritePrimaryType(t, string, int8));
   }
 
   @Test

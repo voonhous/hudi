@@ -129,7 +129,29 @@ public enum HoodieSchemaType {
   /**
    * Null type - represents the absence of a value
    */
-  NULL(Schema.Type.NULL);
+  NULL(Schema.Type.NULL),
+
+  // The types below are appended, not placed next to INT and STRING, so the ordinals of the types above stay as they
+  // were.
+
+  /**
+   * 8-bit signed integer (SQL TINYINT): Avro {@code int} with Hudi logical type {@code int8}. Values are
+   * {@link Integer}s in the range of a byte, exactly like {@link #INT}.
+   */
+  INT8(Schema.Type.INT),
+
+  /**
+   * 16-bit signed integer (SQL SMALLINT): Avro {@code int} with Hudi logical type {@code int16}. Values are
+   * {@link Integer}s in the range of a short, exactly like {@link #INT}.
+   */
+  INT16(Schema.Type.INT),
+
+  /**
+   * Fixed-length character string, {@code CHAR(n)}: Avro {@code string} with Hudi logical type {@code char} and a
+   * {@code length} property. Values are strings, exactly like {@link #STRING}; the value keeps whatever padding it
+   * has. See {@link HoodieSchema.Char}.
+   */
+  CHAR(Schema.Type.STRING);
 
   private final Schema.Type avroType;
 
@@ -167,6 +189,12 @@ public enum HoodieSchemaType {
         return BLOB;
       } else if (logicalType instanceof HoodieSchema.VectorLogicalType) {
         return VECTOR;
+      } else if (logicalType == HoodieSchema.IntLogicalType.int8()) {
+        return INT8;
+      } else if (logicalType == HoodieSchema.IntLogicalType.int16()) {
+        return INT16;
+      } else if (logicalType instanceof HoodieSchema.CharLogicalType) {
+        return CHAR;
       }
     }
     switch (avroSchema.getType()) {
@@ -243,12 +271,44 @@ public enum HoodieSchemaType {
   }
 
   /**
+   * Checks if this schema type is a signed integer that is narrower than {@link #INT}: {@link #INT8} or
+   * {@link #INT16}. Their values are {@link Integer}s, exactly like INT's, so most value handling treats them as INT.
+   *
+   * @return true for INT8 and INT16
+   */
+  public boolean isNarrowInt() {
+    return this == INT8 || this == INT16;
+  }
+
+  /**
+   * Checks if this schema type's values are Avro {@code int}s handled as plain integers: {@link #INT},
+   * {@link #INT8} or {@link #INT16}. DATE and TIME(millis) are also Avro {@code int}s but are not included.
+   *
+   * @return true for INT, INT8 and INT16
+   */
+  public boolean isIntLike() {
+    return this == INT || isNarrowInt();
+  }
+
+  /**
+   * Checks if this schema type's values are plain strings: {@link #STRING} or {@link #CHAR}. UUID and ENUM are not
+   * included.
+   *
+   * @return true for STRING and CHAR
+   */
+  public boolean isStringLike() {
+    return this == STRING || this == CHAR;
+  }
+
+  /**
    * Checks if this schema type represents a numeric type.
    *
-   * @return true if this type is INT, LONG, FLOAT, or DOUBLE
+   * @return true if this type is INT8, INT16, INT, LONG, FLOAT, DOUBLE or DECIMAL
    */
   public boolean isNumeric() {
     switch (this) {
+      case INT8:
+      case INT16:
       case INT:
       case LONG:
       case FLOAT:

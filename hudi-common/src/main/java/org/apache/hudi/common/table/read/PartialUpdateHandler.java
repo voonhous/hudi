@@ -185,7 +185,8 @@ public class PartialUpdateHandler<T> implements Serializable {
   }
 
   static boolean isStringTyped(HoodieSchemaField field) {
-    return hasTargetType(field.schema(), HoodieSchemaType.STRING);
+    // CHAR values are strings, so a CHAR column carries the marker as a STRING one does
+    return hasTargetType(field.schema(), HoodieSchemaType.STRING) || hasTargetType(field.schema(), HoodieSchemaType.CHAR);
   }
 
   static boolean isBytesTyped(HoodieSchemaField field) {

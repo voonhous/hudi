@@ -196,6 +196,10 @@ class HoodieSchemaProjectionChecker {
         return sourceTs.getPrecision() == targetTs.getPrecision()
             && sourceTs.isUtcAdjusted() == targetTs.isUtcAdjusted();
 
+      case CHAR:
+        // Char types must have the same length
+        return ((HoodieSchema.Char) nonNullSource).getLength() == ((HoodieSchema.Char) nonNullTarget).getLength();
+
       default:
         // For primitive types, type equality is sufficient
         return true;
@@ -209,6 +213,11 @@ class HoodieSchemaProjectionChecker {
     // First check if types are exactly equal
     if (strictTypeEquals(source, target)) {
       return true;
+    }
+
+    // A CHAR projects to a CHAR of the same or a greater length, never to a shorter one
+    if (source.getType() == HoodieSchemaType.CHAR && target.getType() == HoodieSchemaType.CHAR) {
+      return ((HoodieSchema.Char) target).getLength() >= ((HoodieSchema.Char) source).getLength();
     }
 
     // Check if type promotion is allowed

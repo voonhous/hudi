@@ -173,8 +173,9 @@ public class TestHoodieSchema {
   @ParameterizedTest
   @EnumSource(value = HoodieSchemaType.class, mode = EnumSource.Mode.MATCH_ALL)
   public void testPrimitiveSchemaCreation(HoodieSchemaType type) {
-    // FIXED requires name and size, DECIMAL requires precision and scale, TIMESTAMP and TIME require precision
-    if (type.isPrimitive() && type != HoodieSchemaType.FIXED && type != HoodieSchemaType.DECIMAL && type != HoodieSchemaType.TIMESTAMP && type != HoodieSchemaType.TIME) {
+    // FIXED requires name and size, DECIMAL requires precision and scale, TIMESTAMP and TIME require precision, CHAR requires length
+    if (type.isPrimitive() && type != HoodieSchemaType.FIXED && type != HoodieSchemaType.DECIMAL && type != HoodieSchemaType.TIMESTAMP && type != HoodieSchemaType.TIME
+        && type != HoodieSchemaType.CHAR) {
       HoodieSchema schema = HoodieSchema.create(type);
 
       assertNotNull(schema);

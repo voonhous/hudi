@@ -350,6 +350,11 @@ public class InternalSchemaConverter {
         return Types.BooleanType.get();
       case INT:
         return Types.IntType.get();
+      case INT8:
+      case INT16:
+        // InternalSchema has no integer narrower than 32 bits: INT8 and INT16 read back as INT. InternalSchema is
+        // persisted for schema-on-read evolution and is being retired by RFC-104, so no type id is added for them.
+        return Types.IntType.get();
       case LONG:
         return Types.LongType.get();
       case FLOAT:
@@ -358,6 +363,9 @@ public class InternalSchemaConverter {
         return Types.DoubleType.get();
       case STRING:
       case ENUM:
+        return Types.StringType.get();
+      case CHAR:
+        // As for INT8 and INT16: InternalSchema has no CHAR, so CHAR(n) reads back as STRING with the same values.
         return Types.StringType.get();
       case FIXED:
         return Types.FixedType.getFixed(schema.getFixedSize());

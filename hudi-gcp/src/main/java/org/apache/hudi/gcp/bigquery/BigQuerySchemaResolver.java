@@ -108,6 +108,8 @@ public class BigQuerySchemaResolver {
     final Field.Mode fieldMode = nullable ? Field.Mode.NULLABLE : Field.Mode.REQUIRED;
     StandardSQLTypeName standardSQLTypeName;
     switch (fieldSchema.getType()) {
+      case INT8:
+      case INT16:
       case INT:
       case LONG:
         standardSQLTypeName = StandardSQLTypeName.INT64;
@@ -127,6 +129,7 @@ public class BigQuerySchemaResolver {
         standardSQLTypeName = StandardSQLTypeName.DATE;
         break;
       case STRING:
+      case CHAR:
       case ENUM:
       case UUID:
         standardSQLTypeName = StandardSQLTypeName.STRING;

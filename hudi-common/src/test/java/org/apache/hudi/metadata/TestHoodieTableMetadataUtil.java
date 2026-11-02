@@ -537,6 +537,17 @@ class TestHoodieTableMetadataUtil {
   }
 
   @Test
+  void testComparableCoercionOfNarrowIntsAndChar() {
+    // INT8 and INT16 coerce as INT, CHAR as STRING (Utf8 unpacked, padding kept)
+    assertEquals(7, HoodieTableMetadataUtil.coerceToComparable(HoodieSchema.createInt8(), 7));
+    assertEquals(1, HoodieTableMetadataUtil.coerceToComparable(HoodieSchema.createInt16(), true));
+    assertEquals(300, HoodieTableMetadataUtil.coerceToComparable(HoodieSchema.createNullable(HoodieSchema.createInt16()), 300));
+    assertEquals("ab ", HoodieTableMetadataUtil.coerceToComparable(HoodieSchema.createChar(3), new org.apache.avro.util.Utf8("ab ")));
+    assertTrue(HoodieTableMetadataUtil.isColumnTypeSupported(HoodieSchema.createInt8(), Option.empty(), HoodieIndexVersion.V1));
+    assertTrue(HoodieTableMetadataUtil.isColumnTypeSupported(HoodieSchema.createChar(3), Option.empty(), HoodieIndexVersion.V2));
+  }
+
+  @Test
   void testComparableCoercion() {
     assertNull(HoodieTableMetadataUtil.coerceToComparable(
         HoodieSchema.create(HoodieSchemaType.INT), null));

@@ -78,6 +78,16 @@ public class TestValueType {
   }
 
   @Test
+  public void testNarrowIntsAndCharUseTheIntAndStringValueTypes() {
+    // no new value type: the stats of INT8 / INT16 and CHAR columns are stored as INT and STRING stats
+    assertSame(ValueType.INT, ValueType.fromSchema(HoodieSchema.createInt8()));
+    assertSame(ValueType.INT, ValueType.fromSchema(HoodieSchema.createInt16()));
+    assertSame(ValueType.STRING, ValueType.fromSchema(HoodieSchema.createChar(10)));
+    assertSame(ValueType.INT, ValueType.fromSchema(
+        HoodieSchema.createNullable(HoodieSchema.createInt8())));
+  }
+
+  @Test
   public void testFromOrdinalRoundTrips() {
     for (ValueType type : ValueType.values()) {
       assertSame(type, ValueType.fromOrdinal(type.ordinal()));

@@ -50,10 +50,12 @@ final class SparkFilterValues {
 
   /**
    * The column types whose values convert in both directions; the types {@code SparkFilterHelper.convertDataType}
-   * handles today.
+   * handles today, and INT8, INT16 and CHAR, which Spark reads as IntegerType and StringType
+   * ({@code HoodieSparkSchemaConverters}), so their filter values are those of INT and STRING.
    */
   static final Set<HoodieSchemaType> VALUE_TYPES = EnumSet.of(HoodieSchemaType.BOOLEAN, HoodieSchemaType.INT,
-      HoodieSchemaType.LONG, HoodieSchemaType.FLOAT, HoodieSchemaType.DOUBLE, HoodieSchemaType.STRING,
+      HoodieSchemaType.INT8, HoodieSchemaType.INT16,
+      HoodieSchemaType.LONG, HoodieSchemaType.FLOAT, HoodieSchemaType.DOUBLE, HoodieSchemaType.STRING, HoodieSchemaType.CHAR,
       HoodieSchemaType.DECIMAL, HoodieSchemaType.DATE, HoodieSchemaType.TIMESTAMP);
 
   private static final long MICROS_PER_SECOND = 1_000_000L;
@@ -108,6 +110,8 @@ final class SparkFilterValues {
         case BOOLEAN:
           return value instanceof Boolean ? Option.of(value) : Option.empty();
         case INT:
+        case INT8:
+        case INT16:
           return exactNumber(value).map(BigDecimal::intValueExact);
         case LONG:
           return exactNumber(value).map(BigDecimal::longValueExact);
@@ -124,6 +128,7 @@ final class SparkFilterValues {
         case DECIMAL:
           return exactNumber(value).flatMap(d -> decimal(d, (HoodieSchema.Decimal) type));
         case STRING:
+        case CHAR:
           return value instanceof CharSequence || value instanceof UTF8String ? Option.of(value.toString()) : Option.empty();
         case DATE:
           if (value instanceof Date) {
@@ -158,11 +163,14 @@ final class SparkFilterValues {
       switch (type.getType()) {
         case BOOLEAN:
         case INT:
+        case INT8:
+        case INT16:
         case LONG:
         case FLOAT:
         case DOUBLE:
         case DECIMAL:
         case STRING:
+        case CHAR:
           // the canonical values of these types are the Spark values; still check they are exact
           return toCanonical(value, type);
         case DATE:

@@ -192,6 +192,8 @@ public class HoodieArrayWritableSchemaUtils {
             values[i] = new BooleanWritable((Boolean) newField.defaultVal().get());
             break;
           case INT:
+          case INT8:
+          case INT16:
             values[i] = new IntWritable((Integer) newField.defaultVal().get());
             break;
           case LONG:
@@ -204,6 +206,7 @@ public class HoodieArrayWritableSchemaUtils {
             values[i] = new DoubleWritable((Double) newField.defaultVal().get());
             break;
           case STRING:
+          case CHAR:
             values[i] = new Text(newField.defaultVal().toString());
             break;
           default:
@@ -254,11 +257,15 @@ public class HoodieArrayWritableSchemaUtils {
         case NULL:
         case BOOLEAN:
         case INT:
+        case INT8:
+        case INT16:
         case LONG:
         case FLOAT:
         case DOUBLE:
         case BYTES:
         case STRING:
+        case CHAR:
+          // CHAR(n) to CHAR(m): the values are strings either way
           return writable;
         case FIXED:
         case DECIMAL:
@@ -296,7 +303,21 @@ public class HoodieArrayWritableSchemaUtils {
     switch (newSchema.getType()) {
       case NULL:
       case BOOLEAN:
+        break;
       case INT:
+      case INT8:
+      case INT16:
+        // INT8, INT16 and INT are all IntWritables. A file column written as a plain INT32 for an INT8 or INT16 table
+        // column reads as INT, and INT8 / INT16 widen to INT.
+        if (oldSchema.getType().isIntLike()) {
+          return writable;
+        }
+        break;
+      case CHAR:
+        // A file column written as STRING for a CHAR table column (Parquet and ORC have no CHAR) reads as STRING
+        if (oldSchema.getType().isStringLike()) {
+          return writable;
+        }
         break;
       case DATE:
         if (oldSchema.getType() == HoodieSchemaType.STRING) {
@@ -304,14 +325,14 @@ public class HoodieArrayWritableSchemaUtils {
         }
         break;
       case LONG:
-        if (oldSchema.getType() == HoodieSchemaType.INT) {
+        if (oldSchema.getType().isIntLike()) {
           return new LongWritable(((IntWritable) writable).get());
         }
         break;
       case FLOAT:
-        if ((oldSchema.getType() == HoodieSchemaType.INT)
+        if ((oldSchema.getType().isIntLike())
             || (oldSchema.getType() == HoodieSchemaType.LONG)) {
-          return oldSchema.getType() == HoodieSchemaType.INT
+          return oldSchema.getType().isIntLike()
               ? new FloatWritable(((IntWritable) writable).get())
               : new FloatWritable(((LongWritable) writable).get());
         }
@@ -320,19 +341,19 @@ public class HoodieArrayWritableSchemaUtils {
         if (oldSchema.getType() == HoodieSchemaType.FLOAT) {
           // java float cannot convert to double directly, deal with float precision change
           return new DoubleWritable(Double.parseDouble(((FloatWritable) writable).get() + ""));
-        } else if (oldSchema.getType() == HoodieSchemaType.INT) {
+        } else if (oldSchema.getType().isIntLike()) {
           return new DoubleWritable(((IntWritable) writable).get());
         } else if (oldSchema.getType() == HoodieSchemaType.LONG) {
           return new DoubleWritable(((LongWritable) writable).get());
         }
         break;
       case BYTES:
-        if (oldSchema.getType() == HoodieSchemaType.STRING) {
+        if (oldSchema.getType().isStringLike()) {
           return new BytesWritable(getUTF8Bytes(writable.toString()));
         }
         break;
       case STRING:
-        if (oldSchema.getType() == HoodieSchemaType.ENUM) {
+        if (oldSchema.getType() == HoodieSchemaType.ENUM || oldSchema.getType() == HoodieSchemaType.CHAR) {
           return writable;
         }
         if (oldSchema.getType() == HoodieSchemaType.BYTES) {
@@ -341,7 +362,7 @@ public class HoodieArrayWritableSchemaUtils {
         if (oldSchema.getType() == HoodieSchemaType.DATE) {
           return new Text(toJavaDate(((IntWritable) writable).get()).toString());
         }
-        if (oldSchema.getType() == HoodieSchemaType.INT
+        if (oldSchema.getType().isIntLike()
             || oldSchema.getType() == HoodieSchemaType.LONG
             || oldSchema.getType() == HoodieSchemaType.FLOAT
             || oldSchema.getType() == HoodieSchemaType.DOUBLE) {
@@ -358,8 +379,8 @@ public class HoodieArrayWritableSchemaUtils {
           HoodieSchema.Decimal decimal = (HoodieSchema.Decimal) newSchema;
           DecimalTypeInfo decimalTypeInfo = new DecimalTypeInfo(decimal.getPrecision(), decimal.getScale());
 
-          if (oldSchema.getType() == HoodieSchemaType.STRING
-              || oldSchema.getType() == HoodieSchemaType.INT
+          if (oldSchema.getType().isStringLike()
+              || oldSchema.getType().isIntLike()
               || oldSchema.getType() == HoodieSchemaType.LONG
               || oldSchema.getType() == HoodieSchemaType.FLOAT
               || oldSchema.getType() == HoodieSchemaType.DOUBLE) {

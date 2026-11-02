@@ -103,6 +103,9 @@ public class TestHoodieSchemaType {
   public void testNumericTypes() {
     // Test numeric type identification
     assertTrue(HoodieSchemaType.INT.isNumeric(), "INT should be numeric");
+    assertTrue(HoodieSchemaType.INT8.isNumeric(), "INT8 should be numeric");
+    assertTrue(HoodieSchemaType.INT16.isNumeric(), "INT16 should be numeric");
+    assertFalse(HoodieSchemaType.CHAR.isNumeric(), "CHAR should not be numeric");
     assertTrue(HoodieSchemaType.LONG.isNumeric(), "LONG should be numeric");
     assertTrue(HoodieSchemaType.FLOAT.isNumeric(), "FLOAT should be numeric");
     assertTrue(HoodieSchemaType.DOUBLE.isNumeric(), "DOUBLE should be numeric");
@@ -210,6 +213,9 @@ public class TestHoodieSchemaType {
     map.put(HoodieSchemaType.VARIANT, createVariantSchemaForTest());
     map.put(HoodieSchemaType.BLOB, HoodieSchema.createBlob().toAvroSchema());
     map.put(HoodieSchemaType.VECTOR, createVectorSchemaForTest());
+    map.put(HoodieSchemaType.INT8, HoodieSchema.IntLogicalType.int8().addToSchema(Schema.create(Schema.Type.INT)));
+    map.put(HoodieSchemaType.INT16, HoodieSchema.IntLogicalType.int16().addToSchema(Schema.create(Schema.Type.INT)));
+    map.put(HoodieSchemaType.CHAR, new HoodieSchema.CharLogicalType(10).addToSchema(Schema.create(Schema.Type.STRING)));
     return map;
   }
 

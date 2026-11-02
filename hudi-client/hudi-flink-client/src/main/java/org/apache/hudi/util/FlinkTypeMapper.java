@@ -100,6 +100,12 @@ public final class FlinkTypeMapper implements TypeSystemMapper<DataType> {
       case BLOB:
         return TypeSupport.lossy("BLOB stored as Flink ROW<type STRING, data BYTES, reference ROW<...>>; read back as BLOB by its field "
             + "structure, so any ROW of that shape becomes BLOB");
+      case INT8:
+        return TypeSupport.lossy("INT8 stored as Flink INT, not TINYINT (HoodieSchemaConverter maps it as INT)");
+      case INT16:
+        return TypeSupport.lossy("INT16 stored as Flink INT, not SMALLINT (HoodieSchemaConverter maps it as INT)");
+      case CHAR:
+        return TypeSupport.lossy("CHAR(n) stored as Flink STRING, not CHAR(n) (HoodieSchemaConverter maps it as STRING)");
       case UNION:
         return TypeSupport.unsupported("Flink has no union type: a union with more than one non-null branch is written as "
             + "RAW(Object), which convertToSchema cannot read back");

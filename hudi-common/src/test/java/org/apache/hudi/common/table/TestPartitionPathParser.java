@@ -70,6 +70,11 @@ class TestPartitionPathParser {
     return Stream.of(
         Arguments.of("123", HoodieSchema.create(HoodieSchemaType.LONG), 123L),
         Arguments.of("123", HoodieSchema.create(HoodieSchemaType.INT), 123),
+        // INT8 and INT16 parse as INT, CHAR as STRING
+        Arguments.of("-12", HoodieSchema.createInt8(), -12),
+        Arguments.of("300", HoodieSchema.createInt16(), 300),
+        Arguments.of("__HIVE_DEFAULT_PARTITION__", HoodieSchema.createInt8(), null),
+        Arguments.of("ab%20c", HoodieSchema.createChar(4), "ab c"),
         Arguments.of("123.45", HoodieSchema.create(HoodieSchemaType.DOUBLE), 123.45),
         Arguments.of("123.45", HoodieSchema.create(HoodieSchemaType.FLOAT), 123.45f),
         Arguments.of("false", HoodieSchema.create(HoodieSchemaType.BOOLEAN), false),

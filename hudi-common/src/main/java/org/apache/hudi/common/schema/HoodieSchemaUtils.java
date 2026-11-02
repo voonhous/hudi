@@ -914,7 +914,7 @@ public final class HoodieSchemaUtils {
    * Converts a HoodieSchemaField's default value to its Java representation.
    *
    * <p>For primitive types (STRING, INT, LONG, FLOAT, DOUBLE, BOOLEAN, ENUM, BYTES, FIXED, DECIMAL)
-   * and logical types (TIME, TIMESTAMP, DATE, UUID), the default value is returned as-is.
+   * and logical types (INT8, INT16, CHAR, TIME, TIMESTAMP, DATE, UUID), the default value is returned as-is.
    * For complex types (ARRAY, MAP, RECORD), Avro's GenericData utility is used
    * to properly construct the default value.</p>
    *
@@ -936,7 +936,10 @@ public final class HoodieSchemaUtils {
 
     switch (type) {
       case STRING:
+      case CHAR:
       case INT:
+      case INT8:
+      case INT16:
       case LONG:
       case FLOAT:
       case DOUBLE:

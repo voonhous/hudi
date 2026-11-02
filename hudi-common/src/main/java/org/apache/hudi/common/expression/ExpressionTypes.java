@@ -69,9 +69,12 @@ public final class ExpressionTypes {
       case VECTOR:
         return ByteBuffer.class;
       case STRING:
+      case CHAR:
       case ENUM:
         return String.class;
       case INT:
+      case INT8:
+      case INT16:
       case DATE:
         return Integer.class;
       case LONG:

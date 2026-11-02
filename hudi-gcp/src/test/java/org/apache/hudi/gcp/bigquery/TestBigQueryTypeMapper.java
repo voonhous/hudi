@@ -22,6 +22,7 @@ import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.mapping.HoodieSchemaEquivalence;
+import org.apache.hudi.common.schema.mapping.MappingOptions;
 import org.apache.hudi.common.schema.mapping.TypeSupport;
 import org.apache.hudi.common.schema.mapping.TypeSystemMapper;
 import org.apache.hudi.common.schema.mapping.testkit.SchemaSample;
@@ -37,10 +38,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.apache.hudi.common.schema.HoodieSchemaType.BLOB;
+import static org.apache.hudi.common.schema.HoodieSchemaType.CHAR;
 import static org.apache.hudi.common.schema.HoodieSchemaType.ENUM;
 import static org.apache.hudi.common.schema.HoodieSchemaType.FIXED;
 import static org.apache.hudi.common.schema.HoodieSchemaType.FLOAT;
 import static org.apache.hudi.common.schema.HoodieSchemaType.INT;
+import static org.apache.hudi.common.schema.HoodieSchemaType.INT16;
+import static org.apache.hudi.common.schema.HoodieSchemaType.INT8;
 import static org.apache.hudi.common.schema.HoodieSchemaType.MAP;
 import static org.apache.hudi.common.schema.HoodieSchemaType.NULL;
 import static org.apache.hudi.common.schema.HoodieSchemaType.TIME;
@@ -51,14 +55,15 @@ import static org.apache.hudi.common.schema.HoodieSchemaType.VARIANT;
 import static org.apache.hudi.common.schema.HoodieSchemaType.VECTOR;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.LOSSY;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.UNSUPPORTED;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Contract test for {@link BigQueryTypeMapper}.
  *
  * <p>RFC-99 has no BigQuery column. The expected support is NATIVE wherever BigQuery has the type, including DECIMAL
- * (NUMERIC(P, S) and BIGNUMERIC(P, S)), and LOSSY where it has none (INT and FLOAT have only 64-bit forms, TIME and
- * TIMESTAMP only microseconds, and there is no FIXED, ENUM, UUID, MAP, VARIANT, BLOB or VECTOR). BigQuery has no union
+ * (NUMERIC(P, S) and BIGNUMERIC(P, S)), and LOSSY where it has none (INT8, INT16, INT and FLOAT have only 64-bit forms,
+ * TIME and TIMESTAMP only microseconds, and there is no CHAR, FIXED, ENUM, UUID, MAP, VARIANT, BLOB or VECTOR). BigQuery has no union
  * and no null type, so UNION and NULL are UNSUPPORTED.
  */
 class TestBigQueryTypeMapper extends TypeSystemMapperContractTest<Field> {
@@ -72,6 +77,9 @@ class TestBigQueryTypeMapper extends TypeSystemMapperContractTest<Field> {
   protected Map<HoodieSchemaType, TypeSupport.Level> expectedSupport() {
     return nativeExcept(
         INT, LOSSY,
+        INT8, LOSSY,
+        INT16, LOSSY,
+        CHAR, LOSSY,
         FLOAT, LOSSY,
         FIXED, LOSSY,
         ENUM, LOSSY,
@@ -112,6 +120,14 @@ class TestBigQueryTypeMapper extends TypeSystemMapperContractTest<Field> {
     gaps.put(ROUND_TRIP + "/struct.in_map", mapNullable);
     gaps.put(ROUND_TRIP + "/null", "BigQuerySchemaResolver silently skips NULL columns instead of failing fast");
     return gaps;
+  }
+
+  @Test
+  void narrowIntsAndCharAreStoredAsInt64AndString() {
+    BigQueryTypeMapper mapper = new BigQueryTypeMapper();
+    assertEquals(StandardSQLTypeName.INT64, mapper.toTypeSystem(HoodieSchema.createInt8(), MappingOptions.DEFAULT).getType().getStandardType());
+    assertEquals(StandardSQLTypeName.INT64, mapper.toTypeSystem(HoodieSchema.createInt16(), MappingOptions.DEFAULT).getType().getStandardType());
+    assertEquals(StandardSQLTypeName.STRING, mapper.toTypeSystem(HoodieSchema.createChar(3), MappingOptions.DEFAULT).getType().getStandardType());
   }
 
   /**

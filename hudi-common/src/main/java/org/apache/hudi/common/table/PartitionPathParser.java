@@ -87,10 +87,13 @@ public class PartitionPathParser {
 
     switch (fieldSchema.getType()) {
       case STRING:
+      case CHAR:
       case ENUM:
       case UUID:
         return PartitionPathEncodeUtils.unescapePathName(partitionValue);
       case INT:
+      case INT8:
+      case INT16:
         return Integer.parseInt(partitionValue);
       case LONG:
         return Long.parseLong(partitionValue);

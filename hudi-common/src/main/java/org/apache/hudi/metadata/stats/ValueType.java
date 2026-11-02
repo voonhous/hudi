@@ -276,6 +276,9 @@ public enum ValueType {
       case BOOLEAN:
         return ValueType.BOOLEAN;
       case INT:
+      case INT8:
+      case INT16:
+        // INT8 and INT16 values are Integers: their stats are stored as INT, so the metadata table layout is unchanged
         return ValueType.INT;
       case LONG:
         return ValueType.LONG;
@@ -286,6 +289,8 @@ public enum ValueType {
       case BYTES:
         return ValueType.BYTES;
       case STRING:
+      case CHAR:
+        // CHAR values are strings, stored as given (padding included), as STRING
         return ValueType.STRING;
       case FIXED:
         return ValueType.FIXED;

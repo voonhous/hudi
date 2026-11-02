@@ -220,10 +220,13 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
     switch (type) {
       case BOOLEAN:
       case INT:
+      case INT8:
+      case INT16:
       case LONG:
       case FLOAT:
       case DOUBLE:
       case STRING:
+      case CHAR:
       case DECIMAL:
       case DATE:
       case TIMESTAMP:
@@ -496,6 +499,9 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
       case BOOLEAN:
         return category == PrimitiveCategory.BOOLEAN;
       case INT:
+      case INT8:
+      case INT16:
+        // HiveTypeUtils reads INT8 and INT16 as Hive int, like INT
         return category == PrimitiveCategory.INT || category == PrimitiveCategory.SHORT || category == PrimitiveCategory.BYTE;
       case LONG:
         return category == PrimitiveCategory.LONG;
@@ -504,7 +510,9 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
       case DOUBLE:
         return category == PrimitiveCategory.DOUBLE;
       case STRING:
-        // not CHAR: Hive compares chars without their padding
+      case CHAR:
+        // not a Hive CHAR: Hive compares chars without their padding. HiveTypeUtils reads a HoodieSchema CHAR as Hive
+        // string, whose values compare as stored.
         return category == PrimitiveCategory.STRING || category == PrimitiveCategory.VARCHAR;
       case DECIMAL:
         return category == PrimitiveCategory.DECIMAL;
@@ -618,6 +626,8 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
       case BOOLEAN:
         return value instanceof Boolean ? value : null;
       case INT:
+      case INT8:
+      case INT16:
         BigDecimal i = exactNumber(value);
         return i != null && isIntegral(i) && i.compareTo(BigDecimal.valueOf(Integer.MIN_VALUE)) >= 0
             && i.compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) <= 0 ? i.intValue() : null;
@@ -639,6 +649,7 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
         // Hive may compare a decimal with a floating constant as doubles; that is not translated
         return value instanceof Long || value instanceof BigDecimal ? decimal((HoodieSchema.Decimal) type, exactNumber(value)) : null;
       case STRING:
+      case CHAR:
         return value instanceof String ? value : null;
       case DATE:
         return value instanceof LocalDate ? Math.toIntExact(((LocalDate) value).toEpochDay()) : null;

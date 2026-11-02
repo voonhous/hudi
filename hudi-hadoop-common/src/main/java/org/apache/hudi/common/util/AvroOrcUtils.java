@@ -621,6 +621,11 @@ public class AvroOrcUtils {
         return TypeDescription.createLong();
       case INT:
         return TypeDescription.createInt();
+      case INT8:
+      case INT16:
+        // RFC-88 bug list: written as ORC int, like INT, not as tinyint / smallint, whose column vectors
+        // addToVector would fill with (byte) / (short) casts the Integer values do not pass
+        return TypeDescription.createInt();
       case BYTES:
       case FIXED:
         return TypeDescription.createBinary();
@@ -724,6 +729,9 @@ public class AvroOrcUtils {
           return union;
         }
       case STRING:
+        return TypeDescription.createString();
+      case CHAR:
+        // RFC-88 bug list: written as ORC string, like STRING, not as char(n)
         return TypeDescription.createString();
       case FLOAT:
         return TypeDescription.createFloat();

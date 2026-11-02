@@ -108,6 +108,31 @@ public class TestAvroOrcUtils extends HoodieCommonTestHarness {
   }
 
   /**
+   * INT8 and INT16 are written as ORC int and CHAR(n) as ORC string, as INT and STRING are, so their Integer and
+   * string values go through the column vectors unchanged.
+   */
+  @Test
+  public void testNarrowIntsAndCharConvertAsIntAndString() {
+    HoodieSchema record = HoodieSchema.createRecord("r", null, null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(4))));
+    TypeDescription orc = AvroOrcUtils.createOrcSchema(record);
+    assertEquals(TypeDescription.fromString("struct<tiny:int,small:int,code:string>"), orc);
+
+    LongColumnVector tiny = new LongColumnVector(1);
+    AvroOrcUtils.addToVector(orc.getChildren().get(0), tiny, HoodieSchema.createInt8(), -7, 0);
+    assertEquals(-7, AvroOrcUtils.readFromVector(orc.getChildren().get(0), tiny, HoodieSchema.createInt8(), 0));
+    LongColumnVector small = new LongColumnVector(1);
+    AvroOrcUtils.addToVector(orc.getChildren().get(1), small, HoodieSchema.createNullable(HoodieSchema.createInt16()), 300, 0);
+    assertEquals(300, AvroOrcUtils.readFromVector(orc.getChildren().get(1), small, HoodieSchema.createInt16(), 0));
+    BytesColumnVector code = new BytesColumnVector(1);
+    code.initBuffer();
+    AvroOrcUtils.addToVector(orc.getChildren().get(2), code, HoodieSchema.createChar(4), new Utf8("ab  "), 0);
+    assertEquals("ab  ", AvroOrcUtils.readFromVector(orc.getChildren().get(2), code, HoodieSchema.createChar(4), 0).toString());
+  }
+
+  /**
    * Tests that LocalTimestamp types are converted to ORC Long (not Timestamp) to preserve old behavior.
    * This ensures backward compatibility with the pre-HoodieSchema refactoring implementation
    * where LocalTimestamp logical types were not explicitly handled and fell through to LONG conversion.

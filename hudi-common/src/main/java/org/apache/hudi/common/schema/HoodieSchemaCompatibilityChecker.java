@@ -291,6 +291,8 @@ public class HoodieSchemaCompatibilityChecker {
           case NULL:
           case BOOLEAN:
           case INT:
+          case INT8:
+          case INT16:
           case LONG:
           case FLOAT:
           case DOUBLE:
@@ -299,6 +301,9 @@ public class HoodieSchemaCompatibilityChecker {
           case STRING:
           case UUID:
           case VARIANT:
+            return result;
+          case CHAR:
+            // CHAR values are strings, whatever the declared lengths: a CHAR(n) reader decodes CHAR(m) data.
             return result;
           case TIME:
             return result.mergedWith(checkTimeCompatibility(reader, writer, locations));
@@ -352,7 +357,6 @@ public class HoodieSchemaCompatibilityChecker {
         switch (reader.getType()) {
           case NULL:
           case BOOLEAN:
-          case INT:
           case TIME:
           case DATE:
           case DECIMAL:
@@ -368,8 +372,16 @@ public class HoodieSchemaCompatibilityChecker {
             return (writer.getType() == HoodieSchemaType.LONG) ? result : result.mergedWith(typeMismatch(reader, writer, locations));
           case UUID:
             return (writer.getType() == HoodieSchemaType.STRING) ? result : result.mergedWith(typeMismatch(reader, writer, locations));
-          // The primitive widening table (LONG <- INT, FLOAT <- INT/LONG, DOUBLE <- INT/LONG/FLOAT, BYTES <- STRING,
-          // STRING <- BYTES or any numeric) lives in HoodieSchemaTypePromotion, shared with the projection checker.
+          // CHAR over STRING is a reader/writer compatibility rule only, like UUID over STRING and for the same reason
+          // kept out of HoodieSchemaTypePromotion: a CHAR reader decodes any string written as STRING.
+          case CHAR:
+            return (writer.getType() == HoodieSchemaType.STRING) ? result : result.mergedWith(typeMismatch(reader, writer, locations));
+          // The primitive widening table (INT16 <- INT8, INT <- INT8/INT16, LONG <- INT8/INT16/INT, FLOAT and DOUBLE
+          // <- any narrower number, BYTES <- STRING/CHAR, STRING <- BYTES, CHAR or any numeric) lives in
+          // HoodieSchemaTypePromotion, shared with the projection checker.
+          case INT8:
+          case INT16:
+          case INT:
           case LONG:
           case FLOAT:
           case DOUBLE:

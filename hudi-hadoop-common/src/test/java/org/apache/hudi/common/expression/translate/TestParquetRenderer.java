@@ -151,6 +151,29 @@ class TestParquetRenderer {
     assertFalse(renderer.render(Predicates.in(ref("c_int"), values)).isPresent());
   }
 
+  /**
+   * INT8 and INT16 columns are written as INT32 and render as INT columns, with INT8, INT16 or INT literals. CHAR
+   * does not render: engines compare it ignoring trailing spaces, FilterApi compares the stored bytes.
+   */
+  @Test
+  void narrowIntsRenderAsIntAndCharDoesNot() {
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    ParquetRenderer tiny = new ParquetRenderer(table("t", int8));
+    assertEquals(FilterApi.eq(FilterApi.intColumn("t"), 5), tiny.render(Predicates.eq(ref("t"), new Literal<>(5, int8))).get());
+    assertEquals(FilterApi.lt(FilterApi.intColumn("t"), 5), tiny.render(Predicates.lt(ref("t"), Literal.from(5))).get());
+    assertFalse(tiny.render(Predicates.eq(ref("t"), Literal.from(5L))).isPresent());
+    ParquetRenderer small = new ParquetRenderer(table("s", int16));
+    assertEquals(FilterApi.gt(FilterApi.intColumn("s"), 300), small.render(Predicates.gt(ref("s"), new Literal<>(300, int16))).get());
+    assertEquals(FilterApi.eq(FilterApi.intColumn("x"), 7), new ParquetRenderer().render(Predicates.eq(ref("x"), new Literal<>(7, int8))).get());
+    ParquetRenderer chars = new ParquetRenderer(table("c", char3));
+    assertFalse(chars.render(Predicates.eq(ref("c"), new Literal<>("ab ", char3))).isPresent());
+    assertFalse(chars.render(Predicates.eq(ref("c"), Literal.from("ab "))).isPresent());
+    assertFalse(chars.support(Expression.Operator.EQ, HoodieSchemaType.CHAR).isSupported());
+    assertTrue(chars.support(Expression.Operator.LT, HoodieSchemaType.INT16).isSupported());
+  }
+
   @Test
   void registryInstanceTypesColumnsByLiteral() {
     ParquetRenderer renderer = new ParquetRenderer();

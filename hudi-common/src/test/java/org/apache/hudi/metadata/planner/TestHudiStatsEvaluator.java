@@ -122,6 +122,38 @@ public class TestHudiStatsEvaluator {
     assertTrue(might(gteq(col("a"), lit(20, INT)), s));
   }
 
+  /**
+   * INT8 and INT16 columns and literals compare as INT ones, with each other and with INT. CHAR compares only with
+   * CHAR of the same length, never with STRING: engines compare CHAR ignoring trailing spaces.
+   */
+  @Test
+  void narrowIntsAndChar() {
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    Map<String, ColumnRange> narrow = stats("a", ColumnRange.of(int8, 10, 20, 0L, 10L));
+    assertFalse(might(eq(col("a"), lit(9, int8)), narrow));
+    assertTrue(might(eq(col("a"), lit(15, int8)), narrow));
+    assertFalse(might(gt(col("a"), lit(20, INT)), narrow));
+    assertFalse(might(lt(col("a"), lit(10, int16)), narrow));
+    assertFalse(might(eq(col("a"), lit(21, int16)), intStats()));
+    assertTrue(might(eq(col("a"), lit(10, int8)), intStats()));
+
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    Map<String, ColumnRange> chars = stats("c", ColumnRange.of(char3, "ab ", "ad ", 0L, 10L));
+    assertFalse(might(eq(col("c"), lit("ae ", char3)), chars));
+    assertTrue(might(eq(col("c"), lit("ac ", char3)), chars));
+    // unknown: a STRING literal, a CHAR literal of another length, a prefix
+    assertTrue(might(eq(col("c"), lit("zz", STRING)), chars));
+    assertTrue(might(eq(col("c"), lit("zz   ", HoodieSchema.createChar(5))), chars));
+    assertTrue(might(Predicates.startsWith(col("c"), lit("z", STRING)), chars));
+    assertTrue(HudiStatsEvaluator.sameComparableType(int8, INT));
+    assertTrue(HudiStatsEvaluator.sameComparableType(INT, int16));
+    assertFalse(HudiStatsEvaluator.sameComparableType(int8, DATE));
+    assertFalse(HudiStatsEvaluator.sameComparableType(char3, STRING));
+    assertEquals(Integer.class, HudiStatsEvaluator.valueClass(int16));
+    assertEquals(String.class, HudiStatsEvaluator.valueClass(char3));
+  }
+
   @Test
   void literalOnTheLeft() {
     Map<String, ColumnRange> s = intStats();

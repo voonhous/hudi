@@ -34,7 +34,8 @@ import java.util.stream.Collectors;
  * The canonical column types every mapper is checked against, and the record shapes each one is wrapped in.
  *
  * <p>There is one sample per {@link HoodieSchemaType}, plus extra samples where a type's parameters change the
- * mapping (decimal backing, time and timestamp precision, local timestamps, vector element types). A type added to
+ * mapping (decimal backing, time and timestamp precision, local timestamps, vector element types). CHAR is sampled
+ * with length 10. A type added to
  * {@code HoodieSchemaType} must get a sample here; {@code TestSchemaSamples} enforces that.
  */
 public final class SchemaSamples {
@@ -113,11 +114,14 @@ public final class SchemaSamples {
   private static List<SchemaSample> build() {
     List<SchemaSample> samples = new ArrayList<>();
     samples.add(nestable("boolean", HoodieSchema.create(HoodieSchemaType.BOOLEAN)));
+    samples.add(nestable("int8", HoodieSchema.createInt8()));
+    samples.add(nestable("int16", HoodieSchema.createInt16()));
     samples.add(nestable("int", HoodieSchema.create(HoodieSchemaType.INT)));
     samples.add(nestable("long", HoodieSchema.create(HoodieSchemaType.LONG)));
     samples.add(nestable("float", HoodieSchema.create(HoodieSchemaType.FLOAT)));
     samples.add(nestable("double", HoodieSchema.create(HoodieSchemaType.DOUBLE)));
     samples.add(nestable("string", HoodieSchema.create(HoodieSchemaType.STRING)));
+    samples.add(nestable("char_10", HoodieSchema.createChar(10)));
     samples.add(nestable("bytes", HoodieSchema.create(HoodieSchemaType.BYTES)));
     samples.add(nestable("fixed_16", HoodieSchema.createFixed("fixed_16", RECORD_NAMESPACE, null, 16)));
     samples.add(nestable("enum", HoodieSchema.createEnum("color", RECORD_NAMESPACE, null, Arrays.asList("RED", "GREEN", "BLUE"))));

@@ -115,6 +115,29 @@ class TestHmsRenderer {
     assertFalse(RENDERER.render(Predicates.eq(ref("_c"), Literal.from(5))).isPresent());
   }
 
+  /**
+   * INT8 and INT16 partition columns are synced as int, so their literals render as INT ones and INT literals are
+   * placed on them. CHAR is not rendered: the metastore compares the stored strings, engines compare CHAR ignoring
+   * trailing spaces.
+   */
+  @Test
+  void narrowIntsRenderAsIntAndCharDoesNot() {
+    HoodieSchema partitions = HoodieSchema.createRecord("partitions", null, null, Arrays.asList(
+        HoodieSchemaField.of("hr", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("mi", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("cc", HoodieSchema.createChar(2))));
+    HmsRenderer renderer = new HmsRenderer(partitions);
+    assertEquals("hr = 5", renderer.render(Predicates.eq(ref("hr"), new Literal<>(5, HoodieSchema.createInt8()))).get());
+    assertEquals("hr = 5", renderer.render(Predicates.eq(ref("hr"), Literal.from(5))).get());
+    assertEquals("mi < 30", renderer.render(Predicates.lt(ref("mi"), new Literal<>(30, HoodieSchema.createInt16()))).get());
+    assertFalse(renderer.render(Predicates.eq(ref("hr"), Literal.from(5L))).isPresent());
+    assertFalse(renderer.render(Predicates.eq(ref("cc"), new Literal<>("us", HoodieSchema.createChar(2)))).isPresent());
+    assertFalse(RENDERER.support(Expression.Operator.EQ, HoodieSchemaType.CHAR).isSupported());
+    // FilterGenVisitor writes INT8 / INT16 literals as integers and CHAR literals quoted, as INT and STRING
+    assertEquals("hr = 5", Predicates.eq(ref("hr"), new Literal<>(5, HoodieSchema.createInt8())).accept(new FilterGenVisitor()));
+    assertEquals("cc = \"us\"", Predicates.eq(ref("cc"), new Literal<>("us", HoodieSchema.createChar(2))).accept(new FilterGenVisitor()));
+  }
+
   private static String render(Expression expr) {
     Option<String> rendered = RENDERER.render(expr);
     return rendered.isPresent() ? rendered.get() : "";

@@ -893,4 +893,19 @@ public class TestHoodieSchemaConverter {
     HoodieSchema notBlob2 = HoodieSchemaConverter.convertToSchema(wrongTypesType);
     assertEquals(HoodieSchemaType.RECORD, notBlob2.getType()); // Should be RECORD, not BLOB
   }
+
+  /**
+   * Today's converter reads INT8 and INT16 as Flink INT and CHAR(n) as STRING, as their values are handled, and
+   * Flink's TINYINT, SMALLINT and CHAR still map to INT and STRING (RFC-88 rollout step 2 switches both).
+   */
+  @Test
+  void testNarrowIntsAndCharAsIntAndString() {
+    assertEquals(DataTypes.INT().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createInt8()));
+    assertEquals(DataTypes.INT().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createInt16()));
+    assertEquals(DataTypes.STRING().notNull(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createChar(4)));
+    assertEquals(DataTypes.INT(), HoodieSchemaConverter.convertToDataType(HoodieSchema.createNullable(HoodieSchema.createInt8())));
+    assertEquals(HoodieSchemaType.INT, HoodieSchemaConverter.convertToSchema(DataTypes.TINYINT().notNull().getLogicalType()).getType());
+    assertEquals(HoodieSchemaType.INT, HoodieSchemaConverter.convertToSchema(DataTypes.SMALLINT().notNull().getLogicalType()).getType());
+    assertEquals(HoodieSchemaType.STRING, HoodieSchemaConverter.convertToSchema(DataTypes.CHAR(4).notNull().getLogicalType()).getType());
+  }
 }

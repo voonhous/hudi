@@ -107,11 +107,18 @@ public class SparkSchemaUtils {
       case DOUBLE: return "\"double\"";
       case INT:
         return "\"integer\"";
+      case INT8:
+      case INT16:
+        // RFC-88 bug list: integer, as the column is synced today, not byte / short
+        return "\"integer\"";
       case LONG:
         return "\"long\"";
       case STRING:
       case ENUM:
       case UUID:
+        return "\"string\"";
+      case CHAR:
+        // RFC-88 bug list: string, as the column is synced today, without the char(n) metadata Spark keeps for CHAR
         return "\"string\"";
       case BYTES:
       case FIXED:

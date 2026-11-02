@@ -123,6 +123,8 @@ public abstract class AbstractHoodieTableMetadata implements HoodieTableMetadata
 
     switch (type.getType()) {
       case INT:
+      case INT8:
+      case INT16:
         return Integer.parseInt(partitionValue);
       case LONG:
         return Long.parseLong(partitionValue);
@@ -141,6 +143,7 @@ public abstract class AbstractHoodieTableMetadata implements HoodieTableMetadata
         return Math.toIntExact(ChronoUnit.DAYS.between(
             EPOCH_DAY, LocalDate.parse(partitionValue, DateTimeFormatter.ISO_LOCAL_DATE)));
       case STRING:
+      case CHAR:
       case ENUM:
         return partitionValue;
       default:

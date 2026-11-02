@@ -74,6 +74,26 @@ public class TestMercifulJsonConverter extends MercifulJsonConverterTestBase {
     assertEquals(rec, CONVERTER.convert(json, simpleSchema));
   }
 
+  /**
+   * INT8 and INT16 values convert as INT values, CHAR values as STRING values (padding kept), although their schemas
+   * carry Hudi logical types the converter has no processor for.
+   */
+  @Test
+  public void narrowIntsAndCharConvertAsIntAndString() throws IOException {
+    HoodieSchema schema = HoodieSchema.parse("{\"type\":\"record\",\"name\":\"r\",\"fields\":["
+        + "{\"name\":\"tiny\",\"type\":{\"type\":\"int\",\"logicalType\":\"int8\"}},"
+        + "{\"name\":\"small\",\"type\":[\"null\",{\"type\":\"int\",\"logicalType\":\"int16\"}],\"default\":null},"
+        + "{\"name\":\"code\",\"type\":{\"type\":\"string\",\"logicalType\":\"char\",\"length\":4}}]}");
+    String json = "{\"tiny\": 7, \"small\": \"300\", \"code\": \"ab  \"}";
+
+    GenericRecord rec = new GenericData.Record(schema.toAvroSchema());
+    rec.put("tiny", 7);
+    rec.put("small", 300);
+    rec.put("code", "ab  ");
+
+    assertEquals(rec, CONVERTER.convert(json, schema));
+  }
+
   @ParameterizedTest
   @MethodSource("dataNestedJsonAsString")
   void nestedJsonAsString(String nameInput) throws IOException {

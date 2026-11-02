@@ -21,6 +21,7 @@ package org.apache.hudi.common.table.read;
 
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,15 @@ class TestPartialUpdateHandler {
         HoodieSchema.create(HoodieSchemaType.INT)
     );
     assertFalse(PartialUpdateHandler.hasTargetType(unionSchema, HoodieSchemaType.STRING));
+  }
+
+  @Test
+  void testCharIsStringTypedAndNarrowIntsAreNot() {
+    // a CHAR column carries the partial update marker as a STRING column does
+    assertTrue(PartialUpdateHandler.isStringTyped(HoodieSchemaField.of("c", HoodieSchema.createChar(5))));
+    assertTrue(PartialUpdateHandler.isStringTyped(HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchema.createChar(5)))));
+    assertFalse(PartialUpdateHandler.isStringTyped(HoodieSchemaField.of("c", HoodieSchema.createInt8())));
+    assertFalse(PartialUpdateHandler.isStringTyped(HoodieSchemaField.of("c", HoodieSchema.createInt16())));
   }
 
   @Test

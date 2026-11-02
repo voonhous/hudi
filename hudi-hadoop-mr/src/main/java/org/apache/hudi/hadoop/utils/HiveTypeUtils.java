@@ -41,6 +41,7 @@ import java.util.Set;
 import static org.apache.hudi.common.schema.HoodieSchemaType.ARRAY;
 import static org.apache.hudi.common.schema.HoodieSchemaType.BOOLEAN;
 import static org.apache.hudi.common.schema.HoodieSchemaType.BYTES;
+import static org.apache.hudi.common.schema.HoodieSchemaType.CHAR;
 import static org.apache.hudi.common.schema.HoodieSchemaType.DATE;
 import static org.apache.hudi.common.schema.HoodieSchemaType.DECIMAL;
 import static org.apache.hudi.common.schema.HoodieSchemaType.DOUBLE;
@@ -48,6 +49,8 @@ import static org.apache.hudi.common.schema.HoodieSchemaType.ENUM;
 import static org.apache.hudi.common.schema.HoodieSchemaType.FIXED;
 import static org.apache.hudi.common.schema.HoodieSchemaType.FLOAT;
 import static org.apache.hudi.common.schema.HoodieSchemaType.INT;
+import static org.apache.hudi.common.schema.HoodieSchemaType.INT16;
+import static org.apache.hudi.common.schema.HoodieSchemaType.INT8;
 import static org.apache.hudi.common.schema.HoodieSchemaType.LONG;
 import static org.apache.hudi.common.schema.HoodieSchemaType.MAP;
 import static org.apache.hudi.common.schema.HoodieSchemaType.NULL;
@@ -89,6 +92,11 @@ public class HiveTypeUtils {
     theMap.put(BYTES, TypeInfoFactory.getPrimitiveTypeInfo("binary"));
     theMap.put(FIXED, TypeInfoFactory.getPrimitiveTypeInfo("binary"));
     theMap.put(STRING, TypeInfoFactory.getPrimitiveTypeInfo("string"));
+    // RFC-88 bug list: INT8, INT16 and CHAR(n) read as Hive int and string, as their values are handled today, not as
+    // tinyint, smallint and char(n), whose object inspectors expect other writables
+    theMap.put(INT8, TypeInfoFactory.getPrimitiveTypeInfo("int"));
+    theMap.put(INT16, TypeInfoFactory.getPrimitiveTypeInfo("int"));
+    theMap.put(CHAR, TypeInfoFactory.getPrimitiveTypeInfo("string"));
     return Collections.unmodifiableMap(theMap);
   }
 

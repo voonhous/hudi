@@ -131,6 +131,9 @@ public class TestHiveSchemaUtil {
     HoodieSchema schema = HoodieSchema.createRecord("TestSchema", null, null,
         Arrays.asList(
             HoodieSchemaField.of("int_field", HoodieSchema.create(HoodieSchemaType.INT)),
+            HoodieSchemaField.of("int8_field", HoodieSchema.createInt8()),
+            HoodieSchemaField.of("int16_field", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+            HoodieSchemaField.of("char_field", HoodieSchema.createChar(10)),
             HoodieSchemaField.of("long_field", HoodieSchema.create(HoodieSchemaType.LONG)),
             HoodieSchemaField.of("float_field", HoodieSchema.create(HoodieSchemaType.FLOAT)),
             HoodieSchemaField.of("double_field", HoodieSchema.createNullable(HoodieSchemaType.DOUBLE)),
@@ -168,6 +171,10 @@ public class TestHiveSchemaUtil {
     Map<String, String> actual = HiveSchemaUtil.convertSchemaToHiveSchema(schema, true);
     Map<String, String> expected = new HashMap<>();
     expected.put("`int_field`", "int");
+    // synced as today until the Hive sync maps them to tinyint, smallint and char(n) (RFC-88 rollout step 2)
+    expected.put("`int8_field`", "int");
+    expected.put("`int16_field`", "int");
+    expected.put("`char_field`", "string");
     expected.put("`long_field`", "bigint");
     expected.put("`float_field`", "float");
     expected.put("`double_field`", "double");

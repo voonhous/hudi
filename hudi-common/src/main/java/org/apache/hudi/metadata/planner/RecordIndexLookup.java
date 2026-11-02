@@ -332,11 +332,13 @@ public class RecordIndexLookup implements IndexLookup {
       return null;
     }
     HoodieSchemaType type = literal.getDataType().getType();
-    if (type == HoodieSchemaType.STRING && literal.getValue() instanceof CharSequence) {
+    // CHAR literals are strings, and INT8 / INT16 literals Integers, whose string forms are the stored key as for
+    // STRING and INT
+    if (type.isStringLike() && literal.getValue() instanceof CharSequence) {
       String value = literal.getValue().toString();
       return value.isEmpty() ? null : value;
     }
-    if ((type == HoodieSchemaType.INT && literal.getValue() instanceof Integer)
+    if ((type.isIntLike() && literal.getValue() instanceof Integer)
         || (type == HoodieSchemaType.LONG && literal.getValue() instanceof Long)) {
       return literal.getValue().toString();
     }

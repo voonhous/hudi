@@ -123,11 +123,16 @@ public class FlinkTranslator implements ExpressionTranslator<ResolvedExpression>
     switch (type) {
       case BOOLEAN:
       case INT:
+      // HoodieSchemaConverter reads INT8 and INT16 as Flink INT and CHAR as Flink STRING, so their values compare as
+      // INT and STRING values do
+      case INT8:
+      case INT16:
       case LONG:
       case FLOAT:
       case DOUBLE:
       case DECIMAL:
       case STRING:
+      case CHAR:
       case DATE:
       case TIMESTAMP:
         return ExpressionSupport.supported();
@@ -446,7 +451,9 @@ public class FlinkTranslator implements ExpressionTranslator<ResolvedExpression>
       switch (columnType.getType()) {
         case BOOLEAN:
           return literalType == LogicalTypeRoot.BOOLEAN && value instanceof Boolean ? value : null;
-        case INT: {
+        case INT:
+        case INT8:
+        case INT16: {
           BigDecimal number = number(value, literalType);
           return number == null ? null : number.intValueExact();
         }
@@ -474,6 +481,7 @@ public class FlinkTranslator implements ExpressionTranslator<ResolvedExpression>
           return scaled.precision() <= decimal.getPrecision() ? scaled : null;
         }
         case STRING:
+        case CHAR:
           if (literalType != LogicalTypeRoot.CHAR && literalType != LogicalTypeRoot.VARCHAR) {
             return null;
           }

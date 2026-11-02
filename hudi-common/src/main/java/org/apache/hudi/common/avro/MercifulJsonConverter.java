@@ -196,7 +196,10 @@ public class MercifulJsonConverter {
     String customizedLogicalType = (String) schema.getProp("logicalType");
     LogicalType logicalType = schema.toAvroSchema().getLogicalType();
     HoodieSchemaType type = schema.getType();
-    if (customizedLogicalType != null && !customizedLogicalType.isEmpty()) {
+    if (type.isNarrowInt() || type == HoodieSchemaType.CHAR) {
+      // INT8 / INT16 values are ints and CHAR values strings: their Hudi logical types need no processor of their own.
+      processor = fieldTypeProcessorMap.get(type);
+    } else if (customizedLogicalType != null && !customizedLogicalType.isEmpty()) {
       processor = fieldLogicalTypeProcessorMap.get(customizedLogicalType);
     } else if (logicalType != null) {
       processor = fieldLogicalTypeProcessorMap.get(logicalType.getName());
@@ -226,6 +229,9 @@ public class MercifulJsonConverter {
     fieldTypeProcessors.put(HoodieSchemaType.MAP, generateMapTypeHandler());
     fieldTypeProcessors.put(HoodieSchemaType.BYTES, generateBytesTypeHandler());
     fieldTypeProcessors.put(HoodieSchemaType.FIXED, generateFixedTypeHandler());
+    fieldTypeProcessors.put(HoodieSchemaType.INT8, fieldTypeProcessors.get(HoodieSchemaType.INT));
+    fieldTypeProcessors.put(HoodieSchemaType.INT16, fieldTypeProcessors.get(HoodieSchemaType.INT));
+    fieldTypeProcessors.put(HoodieSchemaType.CHAR, fieldTypeProcessors.get(HoodieSchemaType.STRING));
     return Collections.unmodifiableMap(fieldTypeProcessors);
   }
 

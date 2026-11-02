@@ -42,6 +42,7 @@ import org.apache.flink.table.expressions.ValueLiteralExpression;
 import org.apache.flink.table.functions.BuiltInFunctionDefinition;
 import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
 import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -243,6 +244,30 @@ public class TestFlinkTranslator extends ExpressionTranslatorContractTest<Resolv
     assertTranslates(schema, call(BuiltInFunctionDefinitions.LESS_THAN, cast(field("f", DataTypes.FLOAT()), DataTypes.DOUBLE()), lit(1.5d)),
         Predicates.lt(col("f"), new Literal<>(1.5f, HoodieSchema.create(HoodieSchemaType.FLOAT))));
     assertNothing(schema, call(BuiltInFunctionDefinitions.LESS_THAN, cast(field("f", DataTypes.FLOAT()), DataTypes.DOUBLE()), lit(1.1d)));
+  }
+
+  /**
+   * INT8 and INT16 columns, which Flink reads as INT, translate as INT columns, and CHAR columns, read as STRING, as
+   * STRING ones; the literals take the column's type.
+   */
+  @Test
+  void narrowIntsAndCharTranslateAsIntAndString() {
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    HoodieSchema schema = HoodieSchema.createRecord("t", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createNullable(int8)),
+        HoodieSchemaField.of("small", int16),
+        HoodieSchemaField.of("code", char3)));
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("tiny", DataTypes.INT()), lit(5)),
+        Predicates.eq(col("tiny"), new Literal<>(5, int8)));
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.LESS_THAN, field("small", DataTypes.INT()), lit(300L)),
+        Predicates.lt(col("small"), new Literal<>(300, int16)));
+    assertNothing(schema, call(BuiltInFunctionDefinitions.EQUALS, field("small", DataTypes.INT()), lit(5_000_000_000L)));
+    assertTranslates(schema, call(BuiltInFunctionDefinitions.EQUALS, field("code", DataTypes.STRING()), lit("ab ", DataTypes.STRING())),
+        Predicates.eq(col("code"), new Literal<>("ab ", char3)));
+    assertNothing(schema, call(BuiltInFunctionDefinitions.EQUALS, field("code", DataTypes.STRING()), lit(5)));
+    assertEquals(7, FlinkTranslator.canonicalValue(7, LogicalTypeRoot.TINYINT, int8));
   }
 
   @Test

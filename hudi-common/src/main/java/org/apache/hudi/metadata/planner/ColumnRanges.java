@@ -205,6 +205,8 @@ public final class ColumnRanges {
       case BOOLEAN:
         return value instanceof Boolean ? value : null;
       case INT:
+      case INT8:
+      case INT16:
         return value instanceof Integer ? value : null;
       case LONG:
         if (value instanceof Long) {
@@ -229,6 +231,7 @@ public final class ColumnRanges {
         }
         return null;
       case STRING:
+      case CHAR:
         return value instanceof CharSequence ? value.toString() : null;
       case DECIMAL:
         return value instanceof BigDecimal ? value : null;

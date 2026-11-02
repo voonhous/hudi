@@ -1399,6 +1399,8 @@ public class HoodieTableMetadataUtil {
       case DECIMAL:
         return (Comparable<?>) val;
       case INT:
+      case INT8:
+      case INT16:
         return castToInteger(val);
       case DATE:
       case TIME:
@@ -1409,6 +1411,7 @@ public class HoodieTableMetadataUtil {
       case LONG:
         return castToLong(val);
       case STRING:
+      case CHAR:
         // unpack the avro Utf8 if possible
         return val.toString();
       case FLOAT:

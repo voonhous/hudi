@@ -47,7 +47,7 @@ import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.UNSUPPORTE
  * <p>Expected support follows RFC-88 section 1, arrow (4): Flink loses the same identity as Spark (UUID and ENUM as
  * string, FIXED as binary, VECTOR as array, BLOB as a row), except that timestamps and TIME keep their precision.
  * Flink has no field metadata, so every LOSSY type comes back from the hint only. Expected column types are RFC-99's
- * "Apache Flink Type" column.
+ * "Apache Flink Type" column; INT8, INT16 and CHAR(n) are NATIVE as TINYINT, SMALLINT and CHAR(n).
  */
 class TestFlinkTypeMapper extends TypeSystemMapperContractTest<DataType> {
 
@@ -67,6 +67,9 @@ class TestFlinkTypeMapper extends TypeSystemMapperContractTest<DataType> {
     Map<String, DataType> types = new HashMap<>();
     types.put("boolean", DataTypes.BOOLEAN().notNull());
     types.put("int", DataTypes.INT().notNull());
+    types.put("int8", DataTypes.TINYINT().notNull());
+    types.put("int16", DataTypes.SMALLINT().notNull());
+    types.put("char_10", DataTypes.CHAR(10).notNull());
     types.put("long", DataTypes.BIGINT().notNull());
     types.put("float", DataTypes.FLOAT().notNull());
     types.put("double", DataTypes.DOUBLE().notNull());
@@ -111,6 +114,13 @@ class TestFlinkTypeMapper extends TypeSystemMapperContractTest<DataType> {
         "HoodieSchemaConverter.convertTimestamp maps UTC-adjusted timestamp-micros to TIMESTAMP(6), not TIMESTAMP_LTZ(6) (time zone semantics swapped)");
     gaps.put("expected_output/local_timestamp_micros",
         "HoodieSchemaConverter.convertTimestamp maps local-timestamp-micros to TIMESTAMP_LTZ(6), not TIMESTAMP(6) (time zone semantics swapped)");
+    for (String[] t : new String[][] {{"INT8", "int8", "INT", "TINYINT"}, {"INT16", "int16", "INT", "SMALLINT"},
+        {"CHAR", "char_10", "STRING", "CHAR(n)"}}) {
+      String widened = "HoodieSchemaConverter.convertToDataType maps " + t[0] + " to " + t[2] + ", not " + t[3]
+          + ", and convertToSchema maps " + t[3] + " back to " + t[2];
+      gaps.put("support_expected/" + t[0], widened);
+      gaps.put("expected_output/" + t[1], widened);
+    }
     gaps.put("round_trip/union_int_string.*",
         "HoodieSchemaConverter.convertUnion writes a multi-branch union as RAW(Object) instead of failing fast; convertToSchema then throws on RAW");
     if (mapper().support(VARIANT).isUnsupported()) {

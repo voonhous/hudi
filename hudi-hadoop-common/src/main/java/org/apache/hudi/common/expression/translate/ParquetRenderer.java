@@ -158,6 +158,8 @@ public class ParquetRenderer implements ExpressionRenderer<FilterPredicate> {
     switch (type) {
       case BOOLEAN:
       case INT:
+      case INT8:
+      case INT16:
       case LONG:
       case FLOAT:
       case DOUBLE:
@@ -166,6 +168,8 @@ public class ParquetRenderer implements ExpressionRenderer<FilterPredicate> {
       case DATE:
       case TIMESTAMP:
         return ExpressionSupport.supported();
+      case CHAR:
+        return ExpressionSupport.unsupported("engines compare CHAR ignoring trailing spaces, FilterApi compares the stored bytes");
       case BYTES:
       case FIXED:
       case UUID:
@@ -275,9 +279,13 @@ public class ParquetRenderer implements ExpressionRenderer<FilterPredicate> {
 
   /**
    * Whether a literal of {@code literalType} has values of the column's type. Decimals of any precision and scale
-   * qualify; they are rescaled exactly or not rendered.
+   * qualify; they are rescaled exactly or not rendered. INT8, INT16 and INT qualify for each other.
    */
   private static boolean sameDomain(HoodieSchema columnType, HoodieSchema literalType) {
+    if (columnType.getType().isIntLike() && literalType.getType().isIntLike()) {
+      // INT8, INT16 and INT values are all Integers in an INT32 column
+      return true;
+    }
     if (columnType.getType() != literalType.getType()) {
       return false;
     }
@@ -300,6 +308,8 @@ public class ParquetRenderer implements ExpressionRenderer<FilterPredicate> {
       case BOOLEAN:
         return value instanceof Boolean ? Option.of(value) : Option.empty();
       case INT:
+      case INT8:
+      case INT16:
       case DATE:
         return value instanceof Integer ? Option.of(value) : Option.empty();
       case LONG:

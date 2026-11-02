@@ -130,6 +130,12 @@ public class SparkTypeMapper implements TypeSystemMapper<DataType> {
       case BLOB:
         return TypeSupport.lossy("BLOB is mapped to its canonical StructType with every field nullable; the hudi_type StructField metadata"
             + " restores it, so it survives only as a record field (or as the element or value of one)", HoodieSchema.TYPE_METADATA_FIELD);
+      case INT8:
+        return TypeSupport.lossy("INT8 is mapped to IntegerType, not ByteType, with no marker; it reads back as INT");
+      case INT16:
+        return TypeSupport.lossy("INT16 is mapped to IntegerType, not ShortType, with no marker; it reads back as INT");
+      case CHAR:
+        return TypeSupport.lossy("CHAR(n) is mapped to StringType, not CharType(n), with no marker; it reads back as STRING");
       case VARIANT:
         return HoodieSparkUtils.gteqSpark4_0()
             ? TypeSupport.nativeType()

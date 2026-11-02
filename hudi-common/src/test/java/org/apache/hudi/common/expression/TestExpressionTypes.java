@@ -76,10 +76,14 @@ class TestExpressionTypes {
     return Stream.of(
         HoodieSchema.create(HoodieSchemaType.BOOLEAN),
         HoodieSchema.create(HoodieSchemaType.INT),
+        // INT8 and INT16 behave as INT, CHAR as STRING (InternalSchemaConverter maps them so)
+        HoodieSchema.createInt8(),
+        HoodieSchema.createInt16(),
         HoodieSchema.create(HoodieSchemaType.LONG),
         HoodieSchema.create(HoodieSchemaType.FLOAT),
         HoodieSchema.create(HoodieSchemaType.DOUBLE),
         HoodieSchema.create(HoodieSchemaType.STRING),
+        HoodieSchema.createChar(3),
         HoodieSchema.create(HoodieSchemaType.BYTES),
         HoodieSchema.createEnum("e", null, null, Arrays.asList("A", "B")),
         HoodieSchema.createFixed("f", null, null, 4),
@@ -127,6 +131,19 @@ class TestExpressionTypes {
       UnsupportedOperationException e = assertThrows(UnsupportedOperationException.class, () -> Comparators.forType(schema));
       assertTrue(e.getMessage().contains("doesn't support comparator yet"), e::getMessage);
     }
+  }
+
+  @Test
+  void testNarrowIntsAndCharReadAndCompareAsIntAndString() {
+    ArrayData data = new ArrayData(Arrays.asList(7, "ab "));
+    assertEquals(7, new BoundReference(0, HoodieSchema.createInt8()).eval(data));
+    assertEquals(7, new BoundReference(0, HoodieSchema.createInt16()).eval(data));
+    assertEquals("ab ", new BoundReference(1, HoodieSchema.createChar(3)).eval(data));
+    assertTrue(Comparators.<Integer>forType(HoodieSchema.createInt8()).compare(-1, 2) < 0);
+    assertTrue(Comparators.<Integer>forType(HoodieSchema.createInt16()).compare(300, 2) > 0);
+    // CHAR keeps its padding: the natural order of the stored values, as for STRING
+    assertTrue(Comparators.<String>forType(HoodieSchema.createChar(3)).compare("ab", "ab ") < 0);
+    assertEquals("boundReference[ordinal: 0, type: int8]", new BoundReference(0, HoodieSchema.createInt8()).toString());
   }
 
   @Test

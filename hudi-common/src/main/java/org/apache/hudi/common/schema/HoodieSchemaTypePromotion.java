@@ -24,10 +24,13 @@ package org.apache.hudi.common.schema;
  *
  * <p>A promotion lets a reader schema with a wider type read data written with a narrower one:</p>
  * <ul>
+ *   <li>INT8 -&gt; INT16, INT, LONG, FLOAT, DOUBLE</li>
+ *   <li>INT16 -&gt; INT, LONG, FLOAT, DOUBLE</li>
  *   <li>INT -&gt; LONG, FLOAT, DOUBLE</li>
  *   <li>LONG -&gt; FLOAT, DOUBLE</li>
  *   <li>FLOAT -&gt; DOUBLE</li>
  *   <li>STRING &lt;-&gt; BYTES (bidirectional)</li>
+ *   <li>CHAR -&gt; STRING, BYTES (CHAR values are strings)</li>
  *   <li>STRING &lt;- any numeric type</li>
  *   <li>decimal widening, see {@link #isDecimalWidening(HoodieSchema, HoodieSchema)}</li>
  * </ul>
@@ -65,27 +68,35 @@ class HoodieSchemaTypePromotion {
     }
 
     switch (readerType) {
+      case INT16:
+        // INT16 can read INT8
+        return writerType == HoodieSchemaType.INT8;
+
+      case INT:
+        // INT can read INT8, INT16
+        return writerType.isNarrowInt();
+
       case LONG:
-        // LONG can read INT
-        return writerType == HoodieSchemaType.INT;
+        // LONG can read INT8, INT16, INT
+        return writerType.isIntLike();
 
       case FLOAT:
-        // FLOAT can read INT, LONG
-        return writerType == HoodieSchemaType.INT || writerType == HoodieSchemaType.LONG;
+        // FLOAT can read INT8, INT16, INT, LONG
+        return writerType.isIntLike() || writerType == HoodieSchemaType.LONG;
 
       case DOUBLE:
-        // DOUBLE can read INT, LONG, FLOAT
-        return writerType == HoodieSchemaType.INT
+        // DOUBLE can read INT8, INT16, INT, LONG, FLOAT
+        return writerType.isIntLike()
             || writerType == HoodieSchemaType.LONG
             || writerType == HoodieSchemaType.FLOAT;
 
       case STRING:
-        // STRING can read BYTES and numeric types
-        return writerType == HoodieSchemaType.BYTES || writerType.isNumeric();
+        // STRING can read BYTES, CHAR and numeric types
+        return writerType == HoodieSchemaType.BYTES || writerType == HoodieSchemaType.CHAR || writerType.isNumeric();
 
       case BYTES:
-        // BYTES can read STRING
-        return writerType == HoodieSchemaType.STRING;
+        // BYTES can read STRING and CHAR
+        return writerType.isStringLike();
 
       default:
         return false;

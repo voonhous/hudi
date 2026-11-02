@@ -168,6 +168,12 @@ public class AvroSchemaConverterWithTimestampNTZ extends HoodieAvroParquetSchema
       case INT:
         builder = Types.primitive(INT32, repetition);
         break;
+      case INT8:
+      case INT16:
+        // RFC-88 bug list: written as a plain INT32, like INT, not with the INT(8) / INT(16) annotation, so the
+        // column reads back as INT without the table schema.
+        builder = Types.primitive(INT32, repetition);
+        break;
       case LONG:
         builder = Types.primitive(INT64, repetition);
         break;
@@ -181,6 +187,11 @@ public class AvroSchemaConverterWithTimestampNTZ extends HoodieAvroParquetSchema
         builder = Types.primitive(BINARY, repetition);
         break;
       case STRING:
+        builder = Types.primitive(BINARY, repetition).as(stringType());
+        break;
+      case CHAR:
+        // Parquet has no CHAR: the values are stored as STRING, padding included, and the column reads back as STRING
+        // without the table schema.
         builder = Types.primitive(BINARY, repetition).as(stringType());
         break;
       case UUID:

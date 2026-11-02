@@ -95,6 +95,22 @@ public class TestColumnRanges {
   }
 
   @Test
+  void narrowIntsAndCharReadAsIntAndString() {
+    // INT8 / INT16 stats are stored as INT stats and CHAR stats as STRING stats, so they read back for each other
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    assertEquals(ColumnRange.of(int8, 1, 9, 0L, 3L), ColumnRanges.fromColumnStats(v2(int8, 1, 9, 0, 3), int8));
+    assertEquals(ColumnRange.of(int16, 1, 9, 0L, 3L), ColumnRanges.fromColumnStats(v2(INT, 1, 9, 0, 3), int16));
+    assertEquals(ColumnRange.of(INT, 1, 9, 0L, 3L), ColumnRanges.fromColumnStats(v2(int8, 1, 9, 0, 3), INT));
+    assertEquals(ColumnRange.of(LONG, 1L, 9L, 0L, 3L), ColumnRanges.fromColumnStats(v2(int16, 1, 9, 0, 3), LONG));
+    assertEquals(ColumnRange.of(char3, "a  ", "z  ", 0L, 3L), ColumnRanges.fromColumnStats(v2(char3, "a  ", "z  ", 0, 3), char3));
+    assertEquals(ColumnRange.of(char3, "a", "z", 0L, 3L), ColumnRanges.fromColumnStats(v2(STRING, "a", "z", 0, 3), char3));
+    assertEquals(ColumnRange.of(int8, 1, 9, 0L, 3L), ColumnRanges.fromColumnStats(v1(1, 9, 0, 3), int8));
+    assertEquals(ColumnRange.of(char3, "a", "b", 0L, 3L), ColumnRanges.fromColumnStats(v1("a", "b", 0, 3), char3));
+  }
+
+  @Test
   void v2Widening() {
     assertEquals(ColumnRange.of(LONG, 1L, 9L, 0L, 3L), ColumnRanges.fromColumnStats(v2(INT, 1, 9, 0, 3), LONG));
     assertEquals(ColumnRange.of(DOUBLE, 1.0, 9.0, 0L, 3L), ColumnRanges.fromColumnStats(v2(INT, 1, 9, 0, 3), DOUBLE));

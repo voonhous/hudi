@@ -182,8 +182,12 @@ public final class BigQueryTypeMapper implements TypeSystemMapper<Field> {
   @Override
   public TypeSupport support(HoodieSchemaType type, MappingOptions opts) {
     switch (type) {
+      case INT8:
+      case INT16:
       case INT:
-        return TypeSupport.lossy("INT stored as INT64");
+        return TypeSupport.lossy(type + " stored as INT64");
+      case CHAR:
+        return TypeSupport.lossy("CHAR(n) stored as STRING; BigQuery has no CHAR type");
       case FLOAT:
         return TypeSupport.lossy("FLOAT stored as FLOAT64");
       case FIXED:

@@ -29,6 +29,7 @@ import org.apache.parquet.schema.Type;
 import org.apache.parquet.schema.Types;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.apache.parquet.schema.LogicalTypeAnnotation.TimeUnit.MICROS;
@@ -39,8 +40,9 @@ import static org.apache.parquet.schema.LogicalTypeAnnotation.TimeUnit.MILLIS;
  *
  * <p>Expected support: RFC-88 section 1 (Parquet: VECTOR as FIXED_LEN_BYTE_ARRAY, BLOB as a plain group, UUID as
  * string while the UUID annotation is off by default). ENUM and UNION are LOSSY because Parquet has no type that keeps
- * enum symbols or union branches; NULL is UNSUPPORTED because Parquet has no null type. Expected column types:
- * RFC-99's "Apache Parquet Type" column.
+ * enum symbols or union branches, and CHAR because Parquet has no CHAR (its values are kept as STRING); NULL is
+ * UNSUPPORTED because Parquet has no null type. INT8 and INT16 are NATIVE: INT32 with the INTEGER(8 / 16, signed)
+ * annotation. Expected column types: RFC-99's "Apache Parquet Type" column.
  */
 class TestParquetSchemaMapper extends FormatSchemaMapperContractTest<MessageType> {
 
@@ -55,6 +57,7 @@ class TestParquetSchemaMapper extends FormatSchemaMapperContractTest<MessageType
         HoodieSchemaType.UUID, uuidLevel(),
         HoodieSchemaType.ENUM, TypeSupport.Level.LOSSY,
         HoodieSchemaType.UNION, TypeSupport.Level.LOSSY,
+        HoodieSchemaType.CHAR, TypeSupport.Level.LOSSY,
         HoodieSchemaType.BLOB, TypeSupport.Level.LOSSY,
         HoodieSchemaType.VECTOR, TypeSupport.Level.LOSSY,
         HoodieSchemaType.NULL, TypeSupport.Level.UNSUPPORTED);
@@ -69,10 +72,14 @@ class TestParquetSchemaMapper extends FormatSchemaMapperContractTest<MessageType
     Map<String, Type> types = new HashMap<>();
     types.put("boolean", Types.required(PrimitiveTypeName.BOOLEAN).named(SchemaSamples.COLUMN));
     types.put("int", Types.required(PrimitiveTypeName.INT32).named(SchemaSamples.COLUMN));
+    // RFC-99: TINYINT / SMALLINT are INT32 + INTEGER(8 / 16, signed=true).
+    types.put("int8", Types.required(PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(8, true)).named(SchemaSamples.COLUMN));
+    types.put("int16", Types.required(PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(16, true)).named(SchemaSamples.COLUMN));
     types.put("long", Types.required(PrimitiveTypeName.INT64).named(SchemaSamples.COLUMN));
     types.put("float", Types.required(PrimitiveTypeName.FLOAT).named(SchemaSamples.COLUMN));
     types.put("double", Types.required(PrimitiveTypeName.DOUBLE).named(SchemaSamples.COLUMN));
     types.put("string", Types.required(PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named(SchemaSamples.COLUMN));
+    types.put("char_10", Types.required(PrimitiveTypeName.BINARY).as(LogicalTypeAnnotation.stringType()).named(SchemaSamples.COLUMN));
     types.put("bytes", Types.required(PrimitiveTypeName.BINARY).named(SchemaSamples.COLUMN));
     // RFC-99: DECIMAL is FIXED_LEN_BYTE_ARRAY + DECIMAL; a bytes-backed decimal gets the minimal width for its precision.
     types.put("decimal_10_2_bytes", decimal(10, 2, 5));
@@ -119,6 +126,13 @@ class TestParquetSchemaMapper extends FormatSchemaMapperContractTest<MessageType
     Map<String, String> gaps = new HashMap<>();
     gaps.put(SUPPORT_EXPECTED + "/VARIANT", "AvroSchemaConverterWithTimestampNTZ reads the variant group back as RECORD: its group visitor has no "
         + "VARIANT case, and parquet-java below 1.16 writes no VARIANT annotation to read, so only the hint restores VARIANT");
+    for (String type : new String[] {"INT8", "INT16"}) {
+      String bits = type.substring(3);
+      gaps.put(SUPPORT_EXPECTED + "/" + type, "AvroSchemaConverterWithTimestampNTZ writes " + type + " as a plain INT32, without INTEGER(" + bits
+          + ", signed), and reads INTEGER(" + bits + ") back as INT (the Spark row writer writes INT(16) for ShortType today)");
+      gaps.put(EXPECTED_OUTPUT + "/" + type.toLowerCase(Locale.ROOT), "AvroSchemaConverterWithTimestampNTZ writes " + type
+          + " as a plain INT32; RFC-99 asks for INT32 + INTEGER(" + bits + ", signed=true)");
+    }
     gaps.put(ROUND_TRIP + "/null", "AvroSchemaConverterWithTimestampNTZ.convertFields silently drops NULL fields instead of failing fast, "
         + "so the column disappears from the MessageType");
     gaps.put(EXPECTED_OUTPUT + "/time_millis", "AvroSchemaConverterWithTimestampNTZ writes TIME with isAdjustedToUTC=true; RFC-99 asks for "

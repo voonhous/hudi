@@ -192,6 +192,11 @@ public class TestDefaultIndexPlanner {
     assertEquals(new HashSet<>(Arrays.asList("k0", "k1", "k2", "k3")), new HashSet<>(lookup.recordKeys(filter, simple)));
     assertEquals(Arrays.asList("7"), lookup.recordKeys(eq("id", 7, INT), simple));
     assertEquals(Arrays.asList("7"), lookup.recordKeys(eq("id", 7L, HoodieSchema.create(HoodieSchemaType.LONG)), simple));
+    // INT8 / INT16 literals key as INT, CHAR literals as STRING (the value as given, padding included)
+    assertEquals(Arrays.asList("7"), lookup.recordKeys(eq("id", 7, HoodieSchema.createInt8()), simple));
+    assertEquals(Arrays.asList("300"), lookup.recordKeys(eq("id", 300, HoodieSchema.createInt16()), simple));
+    assertEquals(Arrays.asList("k1 "), lookup.recordKeys(eq("id", "k1 ", HoodieSchema.createChar(3)), simple));
+    assertTrue(lookup.recordKeys(eq("id", "", HoodieSchema.createChar(3)), simple).isEmpty());
     // not usable: OR, NOT, other columns, a date literal, an empty string, a null
     assertTrue(lookup.recordKeys(Predicates.or(eq("id", "k1", STRING), eq("id", "k2", STRING)), simple).isEmpty());
     assertTrue(lookup.recordKeys(Predicates.not(eq("id", "k1", STRING)), simple).isEmpty());

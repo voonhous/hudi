@@ -218,6 +218,10 @@ public class HiveSchemaUtil {
     switch (nonNullType.getType()) {
       case INT:
         return INT_TYPE_NAME;
+      case INT8:
+      case INT16:
+        // RFC-88 bug list: synced as int, as the column is synced today, not as tinyint / smallint
+        return INT_TYPE_NAME;
       case LONG:
         return BIGINT_TYPE_NAME;
       case FLOAT:
@@ -228,6 +232,9 @@ public class HiveSchemaUtil {
         return BOOLEAN_TYPE_NAME;
       case STRING:
       case ENUM:
+        return STRING_TYPE_NAME;
+      case CHAR:
+        // RFC-88 bug list: synced as string, as the column is synced today, not as char(n)
         return STRING_TYPE_NAME;
       case BYTES:
       case UUID:

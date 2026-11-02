@@ -180,6 +180,11 @@ public class TestHoodieIndexUtils {
     assertFalse(isSecondaryIndexSupportedType(schema.getField("mapField").get().schema()));
     assertFalse(isSecondaryIndexSupportedType(schema.getField("structField").get().schema()));
     assertTrue(isSecondaryIndexSupportedType(schema.getField("floatField").get().schema()));
+
+    // INT8 / INT16 are supported as INT, CHAR(n) as STRING
+    assertTrue(isSecondaryIndexSupportedType(HoodieSchema.createInt8()));
+    assertTrue(isSecondaryIndexSupportedType(HoodieSchema.createNullable(HoodieSchema.createInt16())));
+    assertTrue(isSecondaryIndexSupportedType(HoodieSchema.createChar(10)));
   }
 
   /**

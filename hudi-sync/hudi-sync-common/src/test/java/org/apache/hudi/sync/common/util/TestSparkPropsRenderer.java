@@ -105,6 +105,21 @@ class TestSparkPropsRenderer {
     assertFalse(schemaJson.contains("\"comment\""));
   }
 
+  /**
+   * INT8 and INT16 are written as Spark integer and CHAR(n) as string, as the columns are synced today.
+   */
+  @Test
+  void narrowIntsAndCharRenderAsIntegerAndString() {
+    HoodieSchema schema = HoodieSchema.createRecord("trips", "test", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(3))));
+    String json = SparkSchemaUtils.convertToSparkSchemaJson(schema, false);
+    assertTrue(json.contains("{\"name\":\"tiny\",\"type\":\"integer\",\"nullable\":false,\"metadata\":{}}"), json);
+    assertTrue(json.contains("{\"name\":\"small\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}"), json);
+    assertTrue(json.contains("{\"name\":\"code\",\"type\":\"string\",\"nullable\":false,\"metadata\":{}}"), json);
+  }
+
   @Test
   void diffIsNotSupported() {
     assertThrows(UnsupportedOperationException.class,

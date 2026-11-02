@@ -30,7 +30,8 @@ public class Comparators {
   /**
    * Returns the natural-order comparator for BOOLEAN, INT, LONG, FLOAT, DOUBLE, DATE, time-micros, every
    * TIMESTAMP flavour, STRING and UUID, the types that had a comparator when expressions were typed with
-   * InternalSchema (where ENUM read as STRING). Every other type, time-millis included, throws.
+   * InternalSchema (where ENUM read as STRING), and for INT8, INT16 (values are Integers, as for INT) and CHAR
+   * (values are Strings, as for STRING). Every other type, time-millis included, throws.
    *
    * @throws UnsupportedOperationException if the type has no comparator
    */
@@ -45,6 +46,8 @@ public class Comparators {
     switch (type.getType()) {
       case BOOLEAN:
       case INT:
+      case INT8:
+      case INT16:
       case LONG:
       case FLOAT:
       case DOUBLE:
@@ -53,6 +56,10 @@ public class Comparators {
       case STRING:
       case ENUM:
       case UUID:
+        return true;
+      case CHAR:
+        // Natural order of the stored values, padding included, as for STRING. Spark and Hive compare CHAR ignoring
+        // trailing spaces; no converter produces CHAR yet (RFC-88 rollout step 2), so nothing compares it that way.
         return true;
       case TIME:
         // RFC-88 bug list: the InternalSchema typing only had a comparator for time-micros, not time-millis.

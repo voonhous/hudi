@@ -171,6 +171,10 @@ public class HoodieSchemaComparatorForSchemaEvolution {
       case STRING:
       case BYTES:
       case INT:
+      case INT8:
+        // INT8 is INT with int8 logical type (no additional properties)
+      case INT16:
+        // INT16 is INT with int16 logical type (no additional properties)
       case LONG:
       case FLOAT:
       case DOUBLE:
@@ -187,6 +191,8 @@ public class HoodieSchemaComparatorForSchemaEvolution {
         return timeSchemaEquals(s1, s2);
       case TIMESTAMP:
         return timestampSchemaEquals(s1, s2);
+      case CHAR:
+        return ((HoodieSchema.Char) s1).getLength() == ((HoodieSchema.Char) s2).getLength();
       default:
         throw new IllegalArgumentException("Unknown schema type: " + s1.getType());
     }

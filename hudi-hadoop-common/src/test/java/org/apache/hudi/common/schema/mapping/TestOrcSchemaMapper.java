@@ -30,9 +30,9 @@ import java.util.Map;
 
 /**
  * Contract test for {@link OrcSchemaMapper}. RFC-99 has no ORC column, so the expected support is "lossless where ORC
- * has the type": NATIVE for the types ORC has with all their parameters, LOSSY where ORC has no type (FIXED, ENUM,
- * TIME, UUID, VARIANT, BLOB, VECTOR) or drops a parameter (DECIMAL backing, TIMESTAMP precision), UNSUPPORTED for
- * NULL. There is no expected output.
+ * has the type": NATIVE for the types ORC has with all their parameters (INT8 as tinyint, INT16 as smallint, CHAR(n)
+ * as char(n) included), LOSSY where ORC has no type (FIXED, ENUM, TIME, UUID, VARIANT, BLOB, VECTOR) or drops a
+ * parameter (DECIMAL backing, TIMESTAMP precision), UNSUPPORTED for NULL. There is no expected output.
  */
 class TestOrcSchemaMapper extends FormatSchemaMapperContractTest<TypeDescription> {
 
@@ -66,6 +66,10 @@ class TestOrcSchemaMapper extends FormatSchemaMapperContractTest<TypeDescription
       gaps.put(SUPPORT_EXPECTED + "/" + type, "AvroOrcUtils.createOrcSchema has no case for " + type + " and throws IllegalStateException; "
           + "ORC could keep the values (as string, struct or binary) and the hint restore the type");
     }
+    gaps.put(SUPPORT_EXPECTED + "/INT8", "AvroOrcUtils.createOrcSchema writes INT8 as ORC int, not tinyint, and createSchema reads tinyint back as INT");
+    gaps.put(SUPPORT_EXPECTED + "/INT16", "AvroOrcUtils.createOrcSchema writes INT16 as ORC int, not smallint, and createSchema reads smallint back as INT");
+    gaps.put(SUPPORT_EXPECTED + "/CHAR", "AvroOrcUtils.createOrcSchema writes CHAR(n) as ORC string, not char(n), and createSchema reads char(n) back "
+        + "as STRING");
     // Every column reads back required; nullability is not a HoodieSchemaType, so HoodieSchemaHints does not restore it.
     for (SchemaSample sample : SchemaSamples.all()) {
       if (sample.nesting() != SchemaSample.Nesting.NONE && !support(sample.type()).isUnsupported() && !sample.id().equals("struct")) {

@@ -126,6 +126,12 @@ public final class ParquetSchemaMapper implements FormatSchemaMapper<MessageType
             ? TypeSupport.lossy("fixed(12) fields listed in " + WRITE_FIXED_AS_INT96 + " are written as INT96, which the read side "
                 + "rejects unless parquet.avro.readInt96AsFixed is set")
             : TypeSupport.nativeType();
+      case INT8:
+      case INT16:
+        return TypeSupport.lossy(type + " written as a plain INT32, without the INTEGER(" + (type == HoodieSchemaType.INT8 ? 8 : 16)
+            + ", signed) annotation; read back as INT");
+      case CHAR:
+        return TypeSupport.lossy("Parquet has no CHAR type: CHAR(n) written as BINARY + STRING, values as given; read back as STRING");
       case NULL:
         return TypeSupport.unsupported("Parquet has no null type; the converter drops NULL fields from the MessageType");
       default:

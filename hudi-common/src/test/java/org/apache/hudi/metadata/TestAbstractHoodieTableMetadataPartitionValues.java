@@ -64,6 +64,10 @@ class TestAbstractHoodieTableMetadataPartitionValues {
   private static Stream<Arguments> supportedValues() {
     return Stream.of(
         Arguments.of(HoodieSchema.create(HoodieSchemaType.INT), "42"),
+        // INT8 / INT16 parse as INT and CHAR as STRING, as InternalSchemaConverter maps them
+        Arguments.of(HoodieSchema.createInt8(), "-7"),
+        Arguments.of(HoodieSchema.createInt16(), "300"),
+        Arguments.of(HoodieSchema.createChar(4), "ab  "),
         Arguments.of(HoodieSchema.create(HoodieSchemaType.LONG), "4200000000"),
         Arguments.of(HoodieSchema.create(HoodieSchemaType.BOOLEAN), "true"),
         Arguments.of(HoodieSchema.create(HoodieSchemaType.FLOAT), "1.5"),

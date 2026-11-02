@@ -369,11 +369,20 @@ public class HudiStatsEvaluator implements StatsEvaluator {
 
   /**
    * Whether literals of one type compare with ranges of the other: the same type, and for timestamps and times the
-   * same precision and time zone adjustment. Decimals compare numerically whatever their precision and scale.
+   * same precision and time zone adjustment. Decimals compare numerically whatever their precision and scale. INT8,
+   * INT16 and INT compare with each other: their values are all Integers. CHAR compares only with CHAR of the same
+   * length, never with STRING: engines compare CHAR ignoring trailing spaces, so the order of the stored, padded
+   * values is not the order of a STRING literal.
    */
   static boolean sameComparableType(HoodieSchema a, HoodieSchema b) {
+    if (a.getType().isIntLike() && b.getType().isIntLike()) {
+      return true;
+    }
     if (a.getType() != b.getType() || valueClass(a) == null) {
       return false;
+    }
+    if (a instanceof HoodieSchema.Char && b instanceof HoodieSchema.Char) {
+      return ((HoodieSchema.Char) a).getLength() == ((HoodieSchema.Char) b).getLength();
     }
     if (a instanceof HoodieSchema.Timestamp && b instanceof HoodieSchema.Timestamp) {
       HoodieSchema.Timestamp ta = (HoodieSchema.Timestamp) a;
@@ -395,6 +404,8 @@ public class HudiStatsEvaluator implements StatsEvaluator {
       case BOOLEAN:
         return Boolean.class;
       case INT:
+      case INT8:
+      case INT16:
       case DATE:
         return Integer.class;
       case LONG:
@@ -405,6 +416,7 @@ public class HudiStatsEvaluator implements StatsEvaluator {
       case DOUBLE:
         return Double.class;
       case STRING:
+      case CHAR:
         return String.class;
       case DECIMAL:
         return BigDecimal.class;

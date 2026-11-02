@@ -61,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -180,6 +181,30 @@ class TestSparkTranslator extends ExpressionTranslatorContractTest<Filter> {
     assertTranslates(new EqualTo("c_decimal", 5), eq("c_decimal", new BigDecimal("5.00"), HoodieSchema.createDecimal(10, 2)));
     assertTranslates(new LessThan("c_decimal", new BigDecimal("1.5")), Predicates.lt(new NameReference("c_decimal"),
         new Literal<>(new BigDecimal("1.50"), HoodieSchema.createDecimal(10, 2))));
+  }
+
+  /**
+   * Spark reads INT8 and INT16 columns as IntegerType and CHAR as StringType, so their filter values translate as INT
+   * and STRING ones, typed as the column; the renderer turns them back into the same Spark values.
+   */
+  @Test
+  void testNarrowIntsAndCharTranslateAsIntAndString() {
+    HoodieSchema int8 = HoodieSchema.createInt8();
+    HoodieSchema int16 = HoodieSchema.createInt16();
+    HoodieSchema char3 = HoodieSchema.createChar(3);
+    HoodieSchema schema = HoodieSchema.createRecord("t", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createNullable(int8)),
+        HoodieSchemaField.of("small", int16),
+        HoodieSchemaField.of("code", char3)));
+    SparkTranslator translator = new SparkTranslator();
+    ExpressionEquivalence.assertEquivalent(eq("tiny", 5, int8), translator.toHudi(new EqualTo("tiny", (byte) 5), schema).get());
+    ExpressionEquivalence.assertEquivalent(eq("small", 300, int16), translator.toHudi(new EqualTo("small", 300L), schema).get());
+    assertFalse(translator.toHudi(new EqualTo("small", 1.5d), schema).isPresent());
+    ExpressionEquivalence.assertEquivalent(eq("code", "ab ", char3), translator.toHudi(new EqualTo("code", "ab "), schema).get());
+    assertFalse(translator.toHudi(new StringStartsWith("code", "a"), schema).isPresent());
+    assertEquals(new EqualTo("tiny", 5), new SparkFilterRenderer().render(eq("tiny", 5, int8)).get());
+    assertEquals(Integer.class, ((EqualTo) new SparkFilterRenderer().render(eq("small", 300, int16)).get()).value().getClass());
+    assertEquals(new EqualTo("code", "ab "), new SparkFilterRenderer().render(eq("code", "ab ", char3)).get());
   }
 
   @Test
