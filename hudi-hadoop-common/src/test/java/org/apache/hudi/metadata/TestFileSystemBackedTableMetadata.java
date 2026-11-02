@@ -338,9 +338,9 @@ public class TestFileSystemBackedTableMetadata extends HoodieCommonTestHarness {
             Predicates.gt(new NameReference("hh"), Literal.from(1)))));
     assertEquals(Arrays.asList("region=us/hh=1", "region=us/hh=2"),
         prune(metadata, partitionFields, Predicates.startsWith(new NameReference("region"), Literal.from("u"))));
-    // RFC-88 bug list: PartialBindVisitor turns NOT(hh = 1) into NOT(TRUE) = FALSE at the first level, so
-    // region=us/hh=2 and region=eu/hh=3, which match, are pruned too.
-    assertEquals(Collections.emptyList(),
+    // NOT over a column the first level cannot bind keeps that level unpruned (RFC-88 section 4.2, rule 1); it used
+    // to bind to NOT(TRUE) = FALSE and prune the matching region=us/hh=2 and region=eu/hh=3 as well.
+    assertEquals(Arrays.asList("region=eu/hh=3", "region=us/hh=2"),
         prune(metadata, partitionFields, Predicates.not(Predicates.eq(new NameReference("hh"), Literal.from(1)))));
   }
 

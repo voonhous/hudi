@@ -77,7 +77,14 @@ public class PartialBindVisitor extends BindVisitor {
     }
 
     if (predicate instanceof Predicates.Not) {
-      Expression expr = ((Predicates.Not) predicate).child.accept(this);
+      Expression child = ((Predicates.Not) predicate).child;
+      // An unbindable column binds to TRUE, meaning "unknown, keep every row". Its negation is unknown too, not
+      // FALSE, so a NOT over anything that references an unbindable column keeps every row (RFC-88, section 4.2,
+      // rule 1).
+      if (referencesUnboundColumn(child)) {
+        return alwaysTrue();
+      }
+      Expression expr = child.accept(this);
       if (expr instanceof Predicates.TrueExpression) {
         return alwaysFalse();
       }
@@ -148,5 +155,13 @@ public class PartialBindVisitor extends BindVisitor {
     }
 
     throw new IllegalArgumentException("The expression " + predicate + " cannot be visited as predicate");
+  }
+
+  private boolean referencesUnboundColumn(Expression expression) {
+    if (expression instanceof NameReference) {
+      return findField(((NameReference) expression).getName()) == null;
+    }
+    List<Expression> children = expression.getChildren();
+    return children != null && children.stream().anyMatch(this::referencesUnboundColumn);
   }
 }

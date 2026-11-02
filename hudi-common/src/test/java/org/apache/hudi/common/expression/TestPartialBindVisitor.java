@@ -95,13 +95,34 @@ public class TestPartialBindVisitor {
   }
 
   @Test
-  public void testPartialBindNotWithMissingFieldIsAlwaysFalse() {
+  public void testPartialBindNotWithMissingFieldIsAlwaysTrue() {
+    // NOT over an unknown column is unknown too, so every row is kept rather than none (RFC-88 section 4.2, rule 1).
     PartialBindVisitor partialBindVisitor = new PartialBindVisitor(schema, false);
     Predicates.Not expr = Predicates.not(Predicates.eq(new NameReference("m"), Literal.from(5)));
     Expression binded = expr.accept(partialBindVisitor);
 
-    Assertions.assertTrue(binded instanceof Predicates.FalseExpression);
+    Assertions.assertTrue(binded instanceof Predicates.TrueExpression);
+    Assertions.assertTrue((Boolean) binded.eval(new ArrayData(Arrays.asList("Jane", "2023-04-02", 15, 5L, false))));
+  }
+
+  @Test
+  public void testPartialBindNotOverPartlyBoundExpressionIsAlwaysTrue() {
+    PartialBindVisitor partialBindVisitor = new PartialBindVisitor(schema, false);
+    // NOT(c = 15 AND m = 5) = NOT(c = 15) OR NOT(m = 5): unknown, keep every row.
+    Expression expr = Predicates.not(Predicates.and(
+        Predicates.eq(new NameReference("c"), Literal.from(15)), Predicates.eq(new NameReference("m"), Literal.from(5))));
+    Expression binded = expr.accept(partialBindVisitor);
+
+    Assertions.assertTrue(binded instanceof Predicates.TrueExpression);
+  }
+
+  @Test
+  public void testPartialBindNotOverBoundExpression() {
+    PartialBindVisitor partialBindVisitor = new PartialBindVisitor(schema, false);
+    Expression binded = Predicates.not(Predicates.eq(new NameReference("c"), Literal.from(15))).accept(partialBindVisitor);
+
     Assertions.assertFalse((Boolean) binded.eval(new ArrayData(Arrays.asList("Jane", "2023-04-02", 15, 5L, false))));
+    Assertions.assertTrue((Boolean) binded.eval(new ArrayData(Arrays.asList("Jane", "2023-04-02", 16, 5L, false))));
   }
 
   @Test
