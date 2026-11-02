@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.hudi.common.schema.mapping.testkit;
+package org.apache.hudi.common.schema.mapping;
 
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
@@ -62,6 +62,13 @@ public final class HoodieSchemaEquivalence {
     return diffs;
   }
 
+  public static boolean equivalent(HoodieSchema expected, HoodieSchema actual, Mode mode) {
+    return differences(expected, actual, mode).isEmpty();
+  }
+
+  /**
+   * @throws AssertionError listing the differences, if the schemas are not equivalent
+   */
   public static void assertEquivalent(HoodieSchema expected, HoodieSchema actual, Mode mode) {
     List<String> diffs = differences(expected, actual, mode);
     if (!diffs.isEmpty()) {

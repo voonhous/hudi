@@ -21,6 +21,7 @@ package org.apache.hudi.common.schema.mapping.testkit;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.mapping.FormatSchemaMapper;
+import org.apache.hudi.common.schema.mapping.HoodieSchemaEquivalence;
 import org.apache.hudi.common.schema.mapping.PhysicalOptions;
 import org.apache.hudi.common.schema.mapping.SchemaMappers;
 import org.apache.hudi.common.schema.mapping.TypeSupport;
