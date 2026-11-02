@@ -671,6 +671,10 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     configs.put("hoodie.archivelog.folder", "history");
     configs.put("hoodie.timeline.path", "timeline");
     configs.put("hoodie.timeline.history.path", "history");
+    if (version.greaterThanOrEquals(HoodieTableVersion.fromReleaseVersion("1.3.0"))) {
+      // tables created at an older table version keep today's type mapping
+      configs.put("hoodie.table.type.system.version", "1");
+    }
     if (version.lesserThan(HoodieTableVersion.EIGHT)) {
       configs.put("hoodie.table.partition.fields", "partition_path");
       configs.put("hoodie.table.metadata.partitions", "column_stats,files");

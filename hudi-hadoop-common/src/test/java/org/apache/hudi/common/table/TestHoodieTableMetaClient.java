@@ -343,6 +343,10 @@ class TestHoodieTableMetaClient extends HoodieCommonTestHarness {
     configs.put("hoodie.archivelog.folder", "archived");
     configs.put("hoodie.timeline.path", "timeline");
     configs.put("hoodie.timeline.history.path", "history");
+    if (version.greaterThanOrEquals(HoodieTableVersion.fromReleaseVersion("1.3.0"))) {
+      // tables created at an older table version keep today's type mapping
+      configs.put("hoodie.table.type.system.version", String.valueOf(HoodieTableConfig.CURRENT_TYPE_SYSTEM_VERSION));
+    }
     if (version.lesserThan(HoodieTableVersion.EIGHT)) {
       configs.put("hoodie.timeline.layout.version", "1");
       configs.put("hoodie.table.keygenerator.class", "org.apache.hudi.keygen.SimpleKeyGenerator");

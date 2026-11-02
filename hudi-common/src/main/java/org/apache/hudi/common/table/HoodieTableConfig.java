@@ -390,6 +390,20 @@ public class HoodieTableConfig extends HoodieConfig {
       .defaultValue(HoodieTimelineTimeZone.LOCAL)
       .withDocumentation("User can set hoodie commit timeline timezone, such as utc, local and so on. local is default");
 
+  public static final ConfigProperty<String> TYPE_SYSTEM_VERSION = ConfigProperty
+      .key("hoodie.table.type.system.version")
+      .noDefaultValue()
+      .sinceVersion("1.3.0")
+      .withDocumentation("Which HoodieSchema types engine schemas map to for this table (RFC-88). Absent (0): today's "
+          + "mapping, so Spark ByteType / ShortType and Flink TINYINT / SMALLINT become INT and CHAR becomes STRING. 1: they "
+          + "become INT8, INT16 and CHAR(n). Set once, when the table is created, to the version of the writer that creates "
+          + "it; existing tables keep their mapping for every column, including columns added later.");
+
+  /**
+   * The type system version new tables are created with; see {@link #TYPE_SYSTEM_VERSION}.
+   */
+  public static final int CURRENT_TYPE_SYSTEM_VERSION = 1;
+
   public static final ConfigProperty<Boolean> PARTITION_METAFILE_USE_BASE_FORMAT = ConfigProperty
       .key("hoodie.partition.metafile.use.base.format")
       .defaultValue(false)
@@ -683,6 +697,10 @@ public class HoodieTableConfig extends HoodieConfig {
         // Use latest Version as default unless forced by client
         hoodieConfig.setValue(TIMELINE_LAYOUT_VERSION, TimelineLayoutVersion.CURR_VERSION.toString());
       }
+      if (!hoodieConfig.contains(TYPE_SYSTEM_VERSION)) {
+        // A new table uses the current type system unless the client forces another
+        hoodieConfig.setValue(TYPE_SYSTEM_VERSION, String.valueOf(CURRENT_TYPE_SYSTEM_VERSION));
+      }
       if (hoodieConfig.contains(BOOTSTRAP_BASE_PATH)) {
         if (tableVersion.greaterThan(HoodieTableVersion.SEVEN)) {
           hoodieConfig.setDefaultValue(BOOTSTRAP_INDEX_TYPE, BootstrapIndexType.getBootstrapIndexType(hoodieConfig).toString());
@@ -861,6 +879,20 @@ public class HoodieTableConfig extends HoodieConfig {
   /**
    * @return the hoodie.table.version from hoodie.properties file.
    */
+  /**
+   * The table's type system version; 0 for a table created before {@link #TYPE_SYSTEM_VERSION} existed.
+   */
+  public int getTypeSystemVersion() {
+    return contains(TYPE_SYSTEM_VERSION) ? getInt(TYPE_SYSTEM_VERSION) : 0;
+  }
+
+  /**
+   * Whether engine schemas map to INT8, INT16 and CHAR(n) for this table, instead of INT and STRING.
+   */
+  public boolean usesNarrowIntAndCharTypes() {
+    return getTypeSystemVersion() >= 1;
+  }
+
   public HoodieTableVersion getTableVersion() {
     return getTableVersion(this);
   }
