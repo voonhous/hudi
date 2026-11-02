@@ -35,6 +35,7 @@ import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.hudi.hadoop.utils.HoodieHiveUtils;
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
+import org.apache.hudi.metadata.planner.IndexPlannerMode;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -256,6 +257,11 @@ public class HoodieCopyOnWriteTableInputFormat extends HoodieTableInputFormat {
                 shouldIncludePendingCommits);
 
         Map<String, List<FileSlice>> partitionedFileSlices = fileIndex.listFileSlices();
+        IndexPlannerMode indexPlannerMode = HiveIndexPlanning.mode(job);
+        if (indexPlannerMode != IndexPlannerMode.OFF) {
+          partitionedFileSlices = HiveIndexPlanning.apply(indexPlannerMode, job, tableMetaClient, engineContext, partitionedFileSlices,
+              readsLogFiles(), !queryCommitInstant.isPresent() && !shouldIncludePendingCommits);
+        }
 
         targetFiles.addAll(
             partitionedFileSlices.values()
@@ -322,6 +328,13 @@ public class HoodieCopyOnWriteTableInputFormat extends HoodieTableInputFormat {
     if (queryInstant.isPresent() && !activeTimeline.containsInstant(queryInstant.get())) {
       throw new HoodieIOException(String.format("Query instant (%s) not found in the timeline", queryInstant.get()));
     }
+  }
+
+  /**
+   * Whether the splits read the log files of a file slice too (MOR snapshot), or only its base file.
+   */
+  protected boolean readsLogFiles() {
+    return false;
   }
 
   protected boolean checkIfValidFileSlice(FileSlice fileSlice) {

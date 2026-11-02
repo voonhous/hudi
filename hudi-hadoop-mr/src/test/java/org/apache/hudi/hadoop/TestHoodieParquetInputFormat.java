@@ -20,6 +20,7 @@ package org.apache.hudi.hadoop;
 
 import org.apache.hudi.avro.model.HoodieCompactionPlan;
 import org.apache.hudi.common.config.HoodieCommonConfig;
+import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
@@ -44,14 +45,22 @@ import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.hadoop.testutils.InputFormatTestUtil;
 import org.apache.hudi.hadoop.utils.HoodieHiveUtils;
 import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
+import org.apache.hudi.metadata.planner.IndexPlannerMode;
 import org.apache.hudi.storage.StoragePath;
 
 import org.apache.avro.generic.GenericData;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.io.IOConstants;
+import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
+import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
+import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
+import org.apache.hadoop.hive.ql.plan.TableScanDesc;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPEqual;
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.io.TimestampWritable;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.NullWritable;
@@ -74,6 +83,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.File;
@@ -88,6 +98,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -209,6 +220,27 @@ public class TestHoodieParquetInputFormat {
 
     FileStatus[] files = inputFormat.listStatus(jobConf);
     assertEquals(10, files.length);
+  }
+
+  /**
+   * The RFC-88 index planner needs the metadata table: without it, every mode lists every file. The planner's pruning
+   * itself is tested in hudi-java-client ({@code TestHiveIndexPlanning}), which can write metadata-table indexes.
+   */
+  @ParameterizedTest
+  @EnumSource(IndexPlannerMode.class)
+  public void testIndexPlannerWithoutMetadataTableListsEveryFile(IndexPlannerMode mode) throws IOException {
+    File partitionDir = InputFormatTestUtil.prepareTable(basePath, baseFileFormat, 10, "100");
+    InputFormatTestUtil.commit(basePath, "100");
+    FileInputFormat.setInputPaths(jobConf, partitionDir.getPath());
+    jobConf.set(HoodieMetadataConfig.INDEX_PLANNER_MODE.key(), mode.name());
+    ExprNodeGenericFuncDesc filter = new ExprNodeGenericFuncDesc(TypeInfoFactory.booleanTypeInfo, new GenericUDFOPEqual(),
+        new ArrayList<>(Arrays.asList(new ExprNodeColumnDesc(TypeInfoFactory.stringTypeInfo, "field1", "t", false),
+            new ExprNodeConstantDesc(TypeInfoFactory.stringTypeInfo, "no-such-value"))));
+    jobConf.set(TableScanDesc.FILTER_EXPR_CONF_STR, SerializationUtilities.serializeExpression(filter));
+
+    assertEquals(mode, HiveIndexPlanning.mode(jobConf));
+    assertEquals(10, inputFormat.listStatus(jobConf).length);
+    assertEquals(10, inputFormat.getSplits(jobConf, 10).length);
   }
 
   @Test

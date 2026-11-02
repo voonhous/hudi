@@ -130,6 +130,11 @@ public class HoodieMergeOnReadTableInputFormat extends HoodieCopyOnWriteTableInp
   }
 
   @Override
+  protected boolean readsLogFiles() {
+    return true;
+  }
+
+  @Override
   protected boolean checkIfValidFileSlice(FileSlice fileSlice) {
     Option<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile();
     Option<HoodieLogFile> latestLogFileOpt = fileSlice.getLatestLogFile();
