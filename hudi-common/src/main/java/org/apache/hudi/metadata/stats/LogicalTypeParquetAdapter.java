@@ -63,6 +63,10 @@ public class LogicalTypeParquetAdapter implements ParquetAdapter {
       }
     } else if (annotation instanceof LogicalTypeAnnotation.UUIDLogicalTypeAnnotation) {
       return ValueType.UUID;
+    } else if (annotation instanceof LogicalTypeAnnotation.IntLogicalTypeAnnotation
+        && ((LogicalTypeAnnotation.IntLogicalTypeAnnotation) annotation).isSigned()) {
+      // INT32 + INT(8) / INT(16), as Spark writes ByteType and ShortType (INT8 and INT16 columns), holds plain ints
+      return ((LogicalTypeAnnotation.IntLogicalTypeAnnotation) annotation).getBitWidth() == 64 ? ValueType.LONG : ValueType.INT;
     }
 
     throw new IllegalArgumentException("Unsupported logical type annotation: " + annotation);

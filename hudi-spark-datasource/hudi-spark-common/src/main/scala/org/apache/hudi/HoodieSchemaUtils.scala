@@ -22,12 +22,13 @@ package org.apache.hudi
 import org.apache.hudi.HoodieSparkSqlWriter.{CANONICALIZE_SCHEMA, SQL_MERGE_INTO_WRITES}
 import org.apache.hudi.common.config.{HoodieCommonConfig, HoodieConfig, TypedProperties}
 import org.apache.hudi.common.model.HoodieRecord
-import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaCompatibility, HoodieSchemaUtils => HoodieCommonSchemaUtils}
+import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaCompatibility, HoodieSchemaType, HoodieSchemaUtils => HoodieCommonSchemaUtils}
 import org.apache.hudi.common.schema.internal.{InternalSchema, Type}
 import org.apache.hudi.common.schema.internal.convert.InternalSchemaConverter
 import org.apache.hudi.common.schema.internal.utils.AvroSchemaEvolutionUtils
 import org.apache.hudi.common.schema.internal.utils.AvroSchemaEvolutionUtils.reconcileSchemaRequirements
 import org.apache.hudi.common.schema.internal.utils.SchemaChangeUtils
+import org.apache.hudi.common.schema.mapping.{HoodieSchemaEquivalence, HoodieSchemaHints}
 import org.apache.hudi.common.table.{HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.common.util.ConfigUtils
 import org.apache.hudi.config.HoodieWriteConfig
@@ -113,11 +114,90 @@ object HoodieSchemaUtils {
    *   <li>Source's schema</li>
    *   <li>Target table's schema (including Hudi's [[InternalSchema]] representation)</li>
    * </ul>
+   *
+   * The deduction goes through [[InternalSchema]], which has no INT8, INT16 or CHAR; the writer's schema takes them
+   * back from the source's schema where the table's schema has the same type for the column, or no such column.
    */
   def deduceWriterSchema(sourceSchema: HoodieSchema,
                          latestTableSchemaOpt: Option[HoodieSchema],
                          internalSchemaOpt: Option[InternalSchema],
                          opts: Map[String, String]): HoodieSchema = {
+    restoreNarrowTypes(deduceWriterSchemaInternal(sourceSchema, latestTableSchemaOpt, internalSchemaOpt, opts),
+      sourceSchema, latestTableSchemaOpt)
+  }
+
+  private val NARROW_TYPES = java.util.EnumSet.of(HoodieSchemaType.INT8, HoodieSchemaType.INT16, HoodieSchemaType.CHAR)
+
+  /**
+   * Restores the INT8, INT16 and CHAR(n) columns of the source's schema that the deduction turned into INT and STRING
+   * (their [[InternalSchema]] types). A column keeps the deduced type where the table has another type for it, so a
+   * write never narrows an existing column; tables written before these types existed have none of them, and their
+   * writer's schema is unchanged.
+   */
+  private def restoreNarrowTypes(deduced: HoodieSchema, sourceSchema: HoodieSchema,
+                                 latestTableSchemaOpt: Option[HoodieSchema]): HoodieSchema = {
+    if (!containsNarrowType(sourceSchema)) {
+      deduced
+    } else {
+      val hint = latestTableSchemaOpt.map(t => narrowTypesAgreeingWith(sourceSchema, t)).getOrElse(sourceSchema)
+      HoodieSchemaHints.restore(deduced, org.apache.hudi.common.util.Option.of(hint),
+        new java.util.function.Predicate[HoodieSchemaType] {
+          override def test(t: HoodieSchemaType): Boolean = NARROW_TYPES.contains(t)
+        },
+        new java.util.function.UnaryOperator[HoodieSchema] {
+          override def apply(n: HoodieSchema): HoodieSchema = widened(n)
+        },
+        HoodieSchemaEquivalence.Mode.LOGICAL)
+    }
+  }
+
+  private def widened(schema: HoodieSchema): HoodieSchema =
+    HoodieSchema.create(if (schema.getType == HoodieSchemaType.CHAR) HoodieSchemaType.STRING else HoodieSchemaType.INT)
+
+  private def containsNarrowType(schema: HoodieSchema): Boolean = schema.getType match {
+    case t if NARROW_TYPES.contains(t) => true
+    case HoodieSchemaType.RECORD => schema.getFields.asScala.exists(f => containsNarrowType(f.schema()))
+    case HoodieSchemaType.ARRAY => containsNarrowType(schema.getElementType)
+    case HoodieSchemaType.MAP => containsNarrowType(schema.getValueType)
+    case HoodieSchemaType.UNION => schema.getTypes.asScala.exists(containsNarrowType)
+    case _ => false
+  }
+
+  /**
+   * The source's schema with each INT8, INT16 or CHAR(n) column widened where the table has another type for it.
+   */
+  private def narrowTypesAgreeingWith(source: HoodieSchema, table: HoodieSchema): HoodieSchema = {
+    val s = if (source.isNullable && !source.isComplexUnion) source.getNonNullType else source
+    val t = if (table == null) null else if (table.isNullable && !table.isComplexUnion) table.getNonNullType else table
+    val agreeing = s.getType match {
+      case narrow if NARROW_TYPES.contains(narrow) =>
+        if (t == null || t.equals(s)) s else widened(s)
+      case HoodieSchemaType.RECORD if t != null && t.getType == HoodieSchemaType.RECORD =>
+        HoodieSchema.createRecord(s.getName, s.getNamespace.orElse(null), s.getDoc.orElse(null), s.getFields.asScala.map { f =>
+          val tableField = t.getField(f.name())
+          f.withSchema(narrowTypesAgreeingWith(f.schema(), if (tableField.isPresent) tableField.get().schema() else null))
+        }.asJava)
+      case HoodieSchemaType.ARRAY if t != null =>
+        HoodieSchema.createArray(narrowTypesAgreeingWith(s.getElementType,
+          if (t.getType == HoodieSchemaType.ARRAY) t.getElementType else HoodieSchema.create(HoodieSchemaType.NULL)))
+      case HoodieSchemaType.MAP if t != null =>
+        HoodieSchema.createMap(narrowTypesAgreeingWith(s.getValueType,
+          if (t.getType == HoodieSchemaType.MAP) t.getValueType else HoodieSchema.create(HoodieSchemaType.NULL)))
+      case _ => s
+    }
+    if (agreeing eq s) {
+      source
+    } else if (source.isNullable && !source.isComplexUnion) {
+      HoodieSchema.createNullable(agreeing)
+    } else {
+      agreeing
+    }
+  }
+
+  private def deduceWriterSchemaInternal(sourceSchema: HoodieSchema,
+                                         latestTableSchemaOpt: Option[HoodieSchema],
+                                         internalSchemaOpt: Option[InternalSchema],
+                                         opts: Map[String, String]): HoodieSchema = {
     latestTableSchemaOpt match {
       // If table schema is empty, then we use the source schema as a writer's schema.
       case None => InternalSchemaConverter.fixNullOrdering(sourceSchema)

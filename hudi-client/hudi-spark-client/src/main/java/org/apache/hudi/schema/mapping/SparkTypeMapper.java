@@ -54,6 +54,13 @@ import java.util.Collections;
  * <p>Spark keeps the {@value HoodieSchema#TYPE_METADATA_FIELD} marker for VECTOR and BLOB in the metadata of the
  * enclosing {@code StructField}, so the marker only survives when the type is a field of a record.
  *
+ * <p>INT8, INT16 and CHAR(n) map to Spark's own types: {@code ByteType}, {@code ShortType} and CHAR(n), which inside a
+ * {@code StructType} is {@code StringType} with the raw type {@code char(n)} in the field metadata (Spark's
+ * {@code CharVarcharUtils} form). Until {@code HoodieSparkSchemaConverters.toHoodieType} maps these Spark types to
+ * them directly (RFC-88 rollout step 2c; today they give INT and STRING, as for every schema written before the types
+ * existed), the way back is the {@value HoodieSchema#TYPE_METADATA_FIELD} marker ({@code INT8}, {@code INT16},
+ * {@code CHAR(n)}) the converter writes on a record field of these types, or an array or map of one.
+ *
  * <p>There are no options yet: {@link MappingOptions} are accepted and ignored, which is today's behaviour.
  */
 public class SparkTypeMapper implements TypeSystemMapper<DataType> {
@@ -130,20 +137,15 @@ public class SparkTypeMapper implements TypeSystemMapper<DataType> {
       case BLOB:
         return TypeSupport.lossy("BLOB is mapped to its canonical StructType with every field nullable; the hudi_type StructField metadata"
             + " restores it, so it survives only as a record field (or as the element or value of one)", HoodieSchema.TYPE_METADATA_FIELD);
-      case INT8:
-        return TypeSupport.lossy("INT8 is mapped to IntegerType, not ByteType, with no marker; it reads back as INT");
-      case INT16:
-        return TypeSupport.lossy("INT16 is mapped to IntegerType, not ShortType, with no marker; it reads back as INT");
-      case CHAR:
-        return TypeSupport.lossy("CHAR(n) is mapped to StringType, not CharType(n), with no marker; it reads back as STRING");
       case VARIANT:
         return HoodieSparkUtils.gteqSpark4_0()
             ? TypeSupport.nativeType()
             : TypeSupport.unsupported("Spark 3.x has no VariantType; HoodieSparkSchemaConverters.toSqlType fails with"
                 + " 'VARIANT type is only supported in Spark 4.0+' and writes no struct<metadata, value> with a hudi_type marker instead");
       default:
-        // RECORD, ARRAY, MAP, STRING, BYTES, INT, LONG, FLOAT, DOUBLE, BOOLEAN, DATE, NULL, and DECIMAL (DecimalType keeps
-        // precision and scale; the bytes or fixed backing is physical and restored from the hint).
+        // RECORD, ARRAY, MAP, STRING, BYTES, INT, LONG, FLOAT, DOUBLE, BOOLEAN, DATE, NULL, DECIMAL (DecimalType keeps
+        // precision and scale; the bytes or fixed backing is physical and restored from the hint), and INT8, INT16 and
+        // CHAR(n) (ByteType, ShortType and CHAR(n); see the class comment for the way back).
         return TypeSupport.nativeType();
     }
   }

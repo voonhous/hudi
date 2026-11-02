@@ -36,6 +36,12 @@ public class OriginalTypeParquetAdapter implements ParquetAdapter {
     switch (primitiveType.getOriginalType()) {
       case UTF8:
         return ValueType.STRING;
+      case INT_8:
+      case INT_16:
+      case INT_32:
+        return ValueType.INT;
+      case INT_64:
+        return ValueType.LONG;
       case DECIMAL:
         return ValueType.DECIMAL;
       case DATE:

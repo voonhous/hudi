@@ -21,7 +21,7 @@ package org.apache.spark.sql.execution.datasources.lance
 
 import org.apache.hudi.SparkAdapterSupport.sparkAdapter
 import org.apache.hudi.common.config.{HoodieReaderConfig, HoodieStorageConfig}
-import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType}
+import org.apache.hudi.common.schema.HoodieSchemaType
 import org.apache.hudi.common.schema.internal.InternalSchema
 import org.apache.hudi.common.util
 import org.apache.hudi.common.util.collection.ClosableIterator
@@ -32,6 +32,7 @@ import org.apache.hudi.storage.StorageConfiguration
 import org.apache.hadoop.conf.Configuration
 import org.apache.parquet.schema.MessageType
 import org.apache.spark.TaskContext
+import org.apache.spark.sql.avro.HoodieSparkSchemaConverters
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, JoinedRow, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
@@ -253,11 +254,7 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
   }
 
   private def isBlobField(field: StructField): Boolean = {
-    val md = field.metadata
-    md != null &&
-      md.contains(HoodieSchema.TYPE_METADATA_FIELD) &&
-      HoodieSchema.parseTypeDescriptor(md.getString(HoodieSchema.TYPE_METADATA_FIELD))
-        .getType == HoodieSchemaType.BLOB
+    HoodieSparkSchemaConverters.hasTypeMarker(field.metadata, HoodieSchemaType.BLOB)
   }
 
   /** Recursively checks for a BLOB field (see [[isBlobField]]) at any nesting depth. */

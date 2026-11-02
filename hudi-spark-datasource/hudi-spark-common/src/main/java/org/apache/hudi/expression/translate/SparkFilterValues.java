@@ -50,8 +50,8 @@ final class SparkFilterValues {
 
   /**
    * The column types whose values convert in both directions; the types {@code SparkFilterHelper.convertDataType}
-   * handles today, and INT8, INT16 and CHAR, which Spark reads as IntegerType and StringType
-   * ({@code HoodieSparkSchemaConverters}), so their filter values are those of INT and STRING.
+   * handles today, and INT8, INT16 and CHAR, which Spark reads as ByteType, ShortType and CHAR(n) (StringType)
+   * ({@code HoodieSparkSchemaConverters}). Their canonical values are those of INT and STRING.
    */
   static final Set<HoodieSchemaType> VALUE_TYPES = EnumSet.of(HoodieSchemaType.BOOLEAN, HoodieSchemaType.INT,
       HoodieSchemaType.INT8, HoodieSchemaType.INT16,
@@ -110,9 +110,12 @@ final class SparkFilterValues {
         case BOOLEAN:
           return value instanceof Boolean ? Option.of(value) : Option.empty();
         case INT:
-        case INT8:
-        case INT16:
           return exactNumber(value).map(BigDecimal::intValueExact);
+        case INT8:
+          // the canonical value is an Integer, as for INT, within the column's range
+          return exactNumber(value).map(d -> (int) d.byteValueExact());
+        case INT16:
+          return exactNumber(value).map(d -> (int) d.shortValueExact());
         case LONG:
           return exactNumber(value).map(BigDecimal::longValueExact);
         case FLOAT:
@@ -148,7 +151,8 @@ final class SparkFilterValues {
 
   /**
    * Converts a canonical literal value to the Java value Spark's Parquet filter pushdown ({@code ParquetFilters}
-   * in Spark 3.5) accepts for the type: {@code Integer}, {@code Long}, {@code Float}, {@code Double},
+   * in Spark 3.5) accepts for the type, which is the value Spark itself puts in a filter on such a column:
+   * {@code Byte} for INT8, {@code Short} for INT16, {@code Integer}, {@code Long}, {@code Float}, {@code Double},
    * {@code Boolean}, {@code String}, {@code BigDecimal} with the column's scale, {@code LocalDate} for DATE and
    * {@code Instant} for TIMESTAMP ({@code LocalDateTime} for local timestamps, which it does not push down).
    *
@@ -161,10 +165,12 @@ final class SparkFilterValues {
     }
     try {
       switch (type.getType()) {
+        case INT8:
+          return toCanonical(value, type).map(v -> (byte) (int) (Integer) v);
+        case INT16:
+          return toCanonical(value, type).map(v -> (short) (int) (Integer) v);
         case BOOLEAN:
         case INT:
-        case INT8:
-        case INT16:
         case LONG:
         case FLOAT:
         case DOUBLE:

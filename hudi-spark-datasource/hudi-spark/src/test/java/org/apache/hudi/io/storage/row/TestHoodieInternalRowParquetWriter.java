@@ -18,12 +18,16 @@
 
 package org.apache.hudi.io.storage.row;
 
+import org.apache.hudi.HoodieSchemaConversionUtils;
 import org.apache.hudi.common.avro.HoodieBloomFilterWriteSupport;
 import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.bloom.BloomFilterFactory;
 import org.apache.hudi.common.bloom.BloomFilterTypeCode;
 import org.apache.hudi.common.config.HoodieParquetConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ParquetUtils;
@@ -42,20 +46,24 @@ import org.apache.parquet.schema.PrimitiveType;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.unsafe.types.UTF8String;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -157,6 +165,48 @@ public class TestHoodieInternalRowParquetWriter extends HoodieSparkClientTestHar
     // Config left at its default of MICROS, writer schema says millis: the schema wins again.
     assertEquals(LogicalTypeAnnotation.TimeUnit.MILLIS,
         timestampUnitOf(timestampRecordSchema("timestamp-millis"), null));
+  }
+
+  /**
+   * INT8 and INT16 columns are written as INT32 + INT(8) / INT(16), what Parquet asks for TINYINT / SMALLINT, and CHAR
+   * as a string; the values read back as Spark's ByteType and ShortType.
+   */
+  @Test
+  void testNarrowIntsAndChar() throws Exception {
+    HoodieSchema schema = HoodieSchema.createRecord("rec", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(10))));
+    StructType structType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(schema);
+    HoodieWriteConfig cfg = HoodieWriteConfig.newBuilder().withPath(basePath).withSchema(schema.toString()).build();
+    HoodieRowParquetWriteSupport writeSupport = HoodieRowParquetWriteSupport.getHoodieRowParquetWriteSupport(
+        storageConf.unwrap(), structType, Option.empty(), cfg);
+    MessageType parquetSchema = writeSupport.init(writeSupport.getHadoopConf()).getSchema();
+    assertEquals(PrimitiveType.PrimitiveTypeName.INT32, parquetSchema.getType("tiny").asPrimitiveType().getPrimitiveTypeName());
+    assertEquals(LogicalTypeAnnotation.intType(8, true), parquetSchema.getType("tiny").getLogicalTypeAnnotation());
+    assertEquals(LogicalTypeAnnotation.intType(16, true), parquetSchema.getType("small").getLogicalTypeAnnotation());
+    assertEquals(LogicalTypeAnnotation.stringType(), parquetSchema.getType("code").getLogicalTypeAnnotation());
+
+    HoodieParquetConfig<HoodieRowParquetWriteSupport> parquetConfig = new HoodieParquetConfig<>(writeSupport,
+        CompressionCodecName.SNAPPY, cfg.getParquetBlockSize(), cfg.getParquetPageSize(), cfg.getParquetMaxFileSize(),
+        new HadoopStorageConfiguration(writeSupport.getHadoopConf()), cfg.getParquetCompressionRatio(), cfg.parquetDictionaryEnabled());
+    StoragePath filePath = new StoragePath(basePath + "/narrow.parquet");
+    try (HoodieInternalRowParquetWriter writer = new HoodieInternalRowParquetWriter(filePath, parquetConfig)) {
+      writer.writeRow(UTF8String.fromString("k1"), new GenericInternalRow(new Object[] {
+          UTF8String.fromString("k1"), (byte) -128, (short) 32767, UTF8String.fromString("abc")}));
+      writer.writeRow(UTF8String.fromString("k2"), new GenericInternalRow(new Object[] {
+          UTF8String.fromString("k2"), (byte) 127, null, UTF8String.fromString("0123456789")}));
+    }
+    List<Row> rows = sqlContext.read().parquet(filePath.toString()).orderBy("key").collectAsList();
+    assertEquals(DataTypes.ByteType, rows.get(0).schema().apply("tiny").dataType());
+    assertEquals(DataTypes.ShortType, rows.get(0).schema().apply("small").dataType());
+    assertEquals((byte) -128, rows.get(0).get(1));
+    assertEquals((short) 32767, rows.get(0).get(2));
+    assertEquals("abc", rows.get(0).get(3));
+    assertEquals((byte) 127, rows.get(1).get(1));
+    assertNull(rows.get(1).get(2));
+    assertEquals("0123456789", rows.get(1).get(3));
   }
 
   private static String timestampRecordSchema(String logicalType) {

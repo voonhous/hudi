@@ -21,12 +21,14 @@ package org.apache.hudi.schema.mapping;
 import org.apache.hudi.HoodieSchemaConversionUtils;
 import org.apache.hudi.HoodieSparkUtils;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.mapping.TypeSupport;
 import org.apache.hudi.common.schema.mapping.TypeSystemMapper;
 import org.apache.hudi.common.schema.mapping.testkit.TypeSystemMapperContractTest;
 import org.apache.hudi.common.util.Option;
 
+import org.apache.spark.sql.catalyst.util.CharVarcharUtils;
 import org.apache.spark.sql.types.ArrayType;
 import org.apache.spark.sql.types.CharType;
 import org.apache.spark.sql.types.DataType;
@@ -34,10 +36,13 @@ import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.MetadataBuilder;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -53,12 +58,14 @@ import static org.apache.hudi.common.schema.HoodieSchemaType.VECTOR;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.LOSSY;
 import static org.apache.hudi.common.schema.mapping.TypeSupport.Level.NATIVE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Runs the RFC-88 mapper contract against {@link SparkTypeMapper}. Expected support and column types follow RFC-99's
  * interoperability table ("Apache Spark Type") and RFC-88 section 1, arrow (4): TIMESTAMP(3) read back as micros,
  * TIME as long, UUID and ENUM as string, FIXED as binary, VECTOR as array and BLOB as struct are LOSSY. INT8, INT16
- * and CHAR(n) are NATIVE: ByteType, ShortType (RFC-99 TINYINT / SMALLINT) and CharType(n).
+ * and CHAR(n) are NATIVE: ByteType, ShortType (RFC-99 TINYINT / SMALLINT) and CharType(n), which Spark keeps in a
+ * StructType as StringType with the raw type in the field metadata.
  */
 class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
 
@@ -137,9 +144,14 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
     return types;
   }
 
+  /**
+   * The column's type as Spark sees it: a CHAR(n) column is StringType with its raw type in the field metadata.
+   */
   @Override
   protected DataType columnType(DataType record, String column) {
-    return ((StructType) record).apply(column).dataType();
+    StructField field = ((StructType) record).apply(column);
+    scala.Option<DataType> raw = CharVarcharUtils.getRawType(field.metadata());
+    return raw.isDefined() ? raw.get() : field.dataType();
   }
 
   /**
@@ -159,14 +171,6 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
     gaps.put("marker_declared/UUID", String.format(noMarker, "UUID", "STRING"));
     gaps.put("marker_declared/TIME", String.format(noMarker, "TIME", "INT / LONG"));
     gaps.put("marker_declared/TIMESTAMP", String.format(noMarker, "TIMESTAMP(millis)", "TIMESTAMP(micros)"));
-    for (String[] t : new String[][] {{"INT8", "int8", "IntegerType", "ByteType"}, {"INT16", "int16", "IntegerType", "ShortType"},
-        {"CHAR", "char_10", "StringType", "CharType(n)"}}) {
-      String widened = "HoodieSparkSchemaConverters.toSqlType maps " + t[0] + " to " + t[2] + ", not " + t[3]
-          + ", and toHoodieType maps " + t[3] + " back to " + (t[0].equals("CHAR") ? "STRING" : "INT");
-      gaps.put("support_expected/" + t[0], widened);
-      gaps.put("expected_output/" + t[1], widened);
-      gaps.put("marker_declared/" + t[0], String.format(noMarker, t[0], t[0].equals("CHAR") ? "STRING" : "INT"));
-    }
     gaps.put("expected_output/time_millis",
         "HoodieSparkSchemaConverters.toSqlType maps TIME(millis) to IntegerType (millis), RFC-99 asks LongType (micros)");
     if (!SPARK_4) {
@@ -178,22 +182,73 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
   }
 
   /**
-   * Today's converter reads INT8 and INT16 as IntegerType and CHAR(n) as StringType, as their values are handled, and
-   * Spark's types still map to INT and STRING (RFC-88 rollout step 2 switches both).
+   * INT8, INT16 and CHAR(n) map to ByteType, ShortType and Spark's CHAR(n) (StringType with the raw type in the field
+   * metadata), and record fields carry the hudi_type marker that restores them. A CHAR outside a record has no field
+   * for the metadata and maps to StringType.
    */
   @Test
-  void narrowIntsAndCharReadAsIntegerAndString() {
-    assertEquals(DataTypes.IntegerType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createInt8()));
-    assertEquals(DataTypes.IntegerType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createInt16()));
+  void narrowIntsAndCharMapToSparkTypesWithMarkers() {
+    assertEquals(DataTypes.ByteType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createInt8()));
+    assertEquals(DataTypes.ShortType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createInt16()));
     assertEquals(DataTypes.StringType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(HoodieSchema.createChar(10)));
     assertEquals(DataTypes.LongType, HoodieSchemaConversionUtils.convertHoodieSchemaToDataType(
         HoodieSchema.createUnion(HoodieSchema.createInt16(), HoodieSchema.create(HoodieSchemaType.LONG))));
+
+    HoodieSchema nested = HoodieSchema.createRecord("nested", "ns", null, Collections.singletonList(
+        HoodieSchemaField.of("code", HoodieSchema.createChar(2))));
+    HoodieSchema record = HoodieSchema.createRecord("r", "ns", null, Arrays.asList(
+        HoodieSchemaField.of("b", HoodieSchema.createNullable(HoodieSchema.createInt8())),
+        HoodieSchemaField.of("s", HoodieSchema.createInt16()),
+        HoodieSchemaField.of("c", HoodieSchema.createChar(10)),
+        HoodieSchemaField.of("cs", HoodieSchema.createArray(HoodieSchema.createChar(3))),
+        HoodieSchemaField.of("ss", HoodieSchema.createMap(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("n", nested),
+        HoodieSchemaField.of("i", HoodieSchema.create(HoodieSchemaType.INT))));
+    StructType struct = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(record);
+    assertEquals(DataTypes.ByteType, struct.apply("b").dataType());
+    assertEquals("INT8", struct.apply("b").metadata().getString(HoodieSchema.TYPE_METADATA_FIELD));
+    assertEquals(DataTypes.ShortType, struct.apply("s").dataType());
+    assertEquals("INT16", struct.apply("s").metadata().getString(HoodieSchema.TYPE_METADATA_FIELD));
+    assertEquals(DataTypes.StringType, struct.apply("c").dataType());
+    assertEquals("CHAR(10)", struct.apply("c").metadata().getString(HoodieSchema.TYPE_METADATA_FIELD));
+    assertEquals(new CharType(10), CharVarcharUtils.getRawType(struct.apply("c").metadata()).get());
+    assertEquals(new ArrayType(DataTypes.StringType, false), struct.apply("cs").dataType());
+    assertEquals("CHAR(3)", struct.apply("cs").metadata().getString(HoodieSchema.TYPE_METADATA_FIELD));
+    assertEquals("array<char(3)>", CharVarcharUtils.getRawTypeString(struct.apply("cs").metadata()).get());
+    assertEquals("INT16", struct.apply("ss").metadata().getString(HoodieSchema.TYPE_METADATA_FIELD));
+    // Spark pads a CHAR inside a struct from the raw type of the top-level field, as CharVarcharUtils writes it
+    assertEquals("struct<code:char(2)>", CharVarcharUtils.getRawTypeString(struct.apply("n").metadata()).get());
+    assertFalse(struct.apply("n").metadata().contains(HoodieSchema.TYPE_METADATA_FIELD));
+    assertEquals(Metadata.empty(), struct.apply("i").metadata());
+
+    HoodieSchema converted = new SparkTypeMapper().fromTypeSystem(struct, Option.empty());
+    assertEquals(HoodieSchemaType.INT8, converted.getField("b").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.INT16, converted.getField("s").get().schema().getType());
+    assertEquals(HoodieSchema.createChar(10), converted.getField("c").get().schema());
+    assertEquals(HoodieSchema.createChar(3), converted.getField("cs").get().schema().getElementType());
+    assertEquals(HoodieSchemaType.INT16, converted.getField("ss").get().schema().getValueType().getType());
+    assertEquals(HoodieSchema.createChar(2), converted.getField("n").get().schema().getField("code").get().schema());
+  }
+
+  /**
+   * Without the marker, Spark's ByteType, ShortType and CHAR(n) still map to INT and STRING, as they do for every
+   * schema written before INT8, INT16 and CHAR existed (RFC-88 rollout step 2c switches them). A marker on a field of
+   * another Spark type is ignored.
+   */
+  @Test
+  void sparkTypesWithoutMarkerReadAsIntAndString() {
     StructType engine = new StructType(new StructField[] {
-        field("b", DataTypes.ByteType, false), field("s", DataTypes.ShortType, false), field("c", new CharType(3), false)});
+        field("b", DataTypes.ByteType, false), field("s", DataTypes.ShortType, false), field("c", new CharType(3), false),
+        new StructField("c2", DataTypes.StringType, false, CharVarcharUtils.replaceCharVarcharWithStringInSchema(
+            new StructType(new StructField[] {field("x", new CharType(3), false)})).apply("x").metadata()),
+        new StructField("i", DataTypes.IntegerType, false,
+            new MetadataBuilder().putString(HoodieSchema.TYPE_METADATA_FIELD, "INT16").build())});
     HoodieSchema converted = new SparkTypeMapper().fromTypeSystem(engine, Option.empty());
     assertEquals(HoodieSchemaType.INT, converted.getField("b").get().schema().getType());
     assertEquals(HoodieSchemaType.INT, converted.getField("s").get().schema().getType());
     assertEquals(HoodieSchemaType.STRING, converted.getField("c").get().schema().getType());
+    assertEquals(HoodieSchemaType.STRING, converted.getField("c2").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT, converted.getField("i").get().schema().getType());
   }
 
   private static StructField field(String name, DataType type, boolean nullable) {

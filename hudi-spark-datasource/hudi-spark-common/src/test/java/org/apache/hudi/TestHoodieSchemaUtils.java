@@ -63,6 +63,42 @@ public class TestHoodieSchemaUtils {
         () -> deduceWriterSchema(withNullfield, null));
   }
 
+  /**
+   * The deduction goes through InternalSchema, which has no INT8, INT16 or CHAR: the writer's schema takes them back
+   * from the source, unless the table has another type for the column (a write never narrows an existing column).
+   */
+  @Test
+  void testNarrowIntsAndCharKeptFromSource() {
+    HoodieSchema source = narrowRecord(HoodieSchema.createInt8(), HoodieSchema.createInt16(), HoodieSchema.createChar(10));
+    // new table, and a table with the same types
+    assertNarrowTypes(source, deduceWriterSchema(source, null));
+    assertNarrowTypes(source, deduceWriterSchema(source, source));
+    // a table with INT and STRING columns keeps them
+    HoodieSchema wide = narrowRecord(HoodieSchema.create(HoodieSchemaType.INT), HoodieSchema.create(HoodieSchemaType.INT),
+        HoodieSchema.create(HoodieSchemaType.STRING));
+    HoodieSchema writer = deduceWriterSchema(source, wide);
+    assertEquals(HoodieSchemaType.INT, writer.getField("tiny").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT, writer.getField("small").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.STRING, writer.getField("code").get().schema().getType());
+    // and a source without them leaves a table with them as today: the deduced schema of the source
+    assertEquals(deduceWriterSchema(wide, null), deduceWriterSchema(wide, source));
+  }
+
+  private static HoodieSchema narrowRecord(HoodieSchema tiny, HoodieSchema small, HoodieSchema code) {
+    return HoodieSchema.createRecord("narrow", "ns", null, java.util.Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("tiny", tiny),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(small), null, HoodieSchema.NULL_VALUE),
+        HoodieSchemaField.of("code", code)));
+  }
+
+  private static void assertNarrowTypes(HoodieSchema expected, HoodieSchema actual) {
+    assertEquals(HoodieSchemaType.INT8, actual.getField("tiny").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT16, actual.getField("small").get().schema().getNonNullType().getType());
+    assertTrue(actual.getField("small").get().schema().isNullable());
+    assertEquals(expected.getField("code").get().schema(), actual.getField("code").get().schema());
+  }
+
   @Test
   void testSimplePromotionWithComplexFields() {
     HoodieSchema start = createRecord("simple", createPrimitiveField("f", HoodieSchemaType.INT));

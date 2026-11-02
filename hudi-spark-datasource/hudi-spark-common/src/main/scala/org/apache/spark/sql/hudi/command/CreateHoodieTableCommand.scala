@@ -289,11 +289,8 @@ object CreateHoodieTableCommand extends SparkAdapterSupport {
   }
 
   /** Mirrors the detection in HoodieSparkSchemaConverters.toHoodieTypeNested. */
-  private def isVectorType(metadata: Metadata): Boolean = {
-    metadata.contains(HoodieSchema.TYPE_METADATA_FIELD) &&
-      HoodieSchema.parseTypeDescriptor(
-        metadata.getString(HoodieSchema.TYPE_METADATA_FIELD)).getType == HoodieSchemaType.VECTOR
-  }
+  private def isVectorType(metadata: Metadata): Boolean =
+    HoodieSparkSchemaConverters.hasTypeMarker(metadata, HoodieSchemaType.VECTOR)
 
   // This code is forked from org.apache.spark.sql.hive.HiveExternalCatalog#tableMetaToTableProps
   private def tableMetaToTableProps(sparkConf: SparkConf, table: CatalogTable,

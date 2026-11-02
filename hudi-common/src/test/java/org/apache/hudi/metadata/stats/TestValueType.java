@@ -24,6 +24,7 @@ import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.apache.avro.generic.GenericData;
 import org.apache.parquet.io.api.Binary;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Types;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,23 @@ public class TestValueType {
     assertSame(ValueType.STRING, ValueType.fromSchema(HoodieSchema.createChar(10)));
     assertSame(ValueType.INT, ValueType.fromSchema(
         HoodieSchema.createNullable(HoodieSchema.createInt8())));
+  }
+
+  @Test
+  public void testParquetIntAnnotationsUseTheIntValueTypes() {
+    // INT32 + INT(8) / INT(16) is how Spark writes ByteType and ShortType (the columns of INT8 and INT16)
+    for (int bitWidth : new int[] {8, 16, 32}) {
+      PrimitiveType annotated = Types.required(PrimitiveType.PrimitiveTypeName.INT32)
+          .as(LogicalTypeAnnotation.intType(bitWidth, true)).named("c");
+      assertSame(ValueType.INT, ValueType.fromParquetPrimitiveType(annotated));
+      assertSame(ValueType.INT, new OriginalTypeParquetAdapter().getValueTypeFromAnnotation(annotated));
+    }
+    PrimitiveType int64 = Types.required(PrimitiveType.PrimitiveTypeName.INT64)
+        .as(LogicalTypeAnnotation.intType(64, true)).named("c");
+    assertSame(ValueType.LONG, ValueType.fromParquetPrimitiveType(int64));
+    // unsigned integers have no value type yet
+    assertThrows(IllegalArgumentException.class, () -> ValueType.fromParquetPrimitiveType(
+        Types.required(PrimitiveType.PrimitiveTypeName.INT32).as(LogicalTypeAnnotation.intType(32, false)).named("c")));
   }
 
   @Test

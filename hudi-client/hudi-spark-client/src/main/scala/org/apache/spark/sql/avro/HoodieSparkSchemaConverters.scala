@@ -24,6 +24,7 @@ import org.apache.hudi.common.schema.HoodieSchema.TimePrecision
 import org.apache.hudi.common.schema.internal.HoodieSchemaException
 
 import org.apache.spark.annotation.DeveloperApi
+import org.apache.spark.sql.catalyst.util.CharVarcharUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.types.Decimal.minBytesForPrecision
@@ -53,10 +54,47 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
    */
   case class SchemaType(dataType: DataType, nullable: Boolean, metadata: Option[Metadata] = None)
 
+  /**
+   * Converts a HoodieSchema to a Spark type. INT8 and INT16 become ByteType and ShortType, and CHAR(n) becomes Spark's
+   * form of CharType(n) inside a schema: StringType, with the raw type in the field's
+   * [[CharVarcharUtils.CHAR_VARCHAR_TYPE_STRING_METADATA_KEY]] metadata (as `CharVarcharUtils` writes it), so Spark pads
+   * and compares the values as CHAR when it reads them. A CHAR that is not inside a record has no field to carry
+   * that metadata and becomes plain StringType.
+   *
+   * Record fields of these types (or arrays and maps of them) also carry the [[HoodieSchema.TYPE_METADATA_FIELD]] marker
+   * (`INT8`, `INT16`, `CHAR(n)`), which [[toHoodieType]] reads to restore them; without it, ByteType and ShortType
+   * still convert to INT and CHAR to STRING, as they do for every schema written before these types existed.
+   */
   def toSqlType(hoodieSchema: HoodieSchema): (DataType, Boolean) = {
     val result = toSqlTypeHelper(hoodieSchema, Set.empty)
-    (result.dataType, result.nullable)
+    val dataType = result.dataType match {
+      // the raw type of every top-level field goes into its metadata, nested CHARs included, as Spark pads from it
+      case st: StructType => CharVarcharUtils.replaceCharVarcharWithStringInSchema(st)
+      case other => CharVarcharUtils.replaceCharVarcharWithString(other)
+    }
+    (dataType, result.nullable)
   }
+
+  /**
+   * The HoodieSchema a [[HoodieSchema.TYPE_METADATA_FIELD]] marker names, if the metadata has one. Besides the
+   * descriptors of [[HoodieSchema.parseTypeDescriptor]] (VECTOR, BLOB, VARIANT), this reads the `INT8`, `INT16` and
+   * `CHAR(n)` markers [[toSqlType]] writes. Use it instead of `HoodieSchema.parseTypeDescriptor` for Spark field
+   * metadata.
+   */
+  def typeMarker(metadata: Metadata): Option[HoodieSchema] = {
+    if (metadata == null || !metadata.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
+      None
+    } else {
+      val descriptor = metadata.getString(HoodieSchema.TYPE_METADATA_FIELD)
+      Some(parseNarrowTypeMarker(descriptor).getOrElse(HoodieSchema.parseTypeDescriptor(descriptor)))
+    }
+  }
+
+  /**
+   * Whether the metadata has a [[HoodieSchema.TYPE_METADATA_FIELD]] marker for the given type (see [[typeMarker]]).
+   */
+  def hasTypeMarker(metadata: Metadata, schemaType: HoodieSchemaType): Boolean =
+    typeMarker(metadata).exists(_.getType == schemaType)
 
   def toHoodieType(catalystType: DataType,
                    nullable: Boolean = false,
@@ -85,11 +123,8 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
   private def validateCustomTypeStructuresRecursive(dataType: DataType): Unit = dataType match {
     case s: StructType =>
       s.fields.foreach { f =>
-        if (f.metadata.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
-          val descriptorType = HoodieSchema
-            .parseTypeDescriptor(f.metadata.getString(HoodieSchema.TYPE_METADATA_FIELD))
-            .getType
-          (descriptorType, f.dataType) match {
+        typeMarker(f.metadata).foreach { marked =>
+          (marked.getType, f.dataType) match {
             case (HoodieSchemaType.BLOB, st: StructType) => validateBlobStructure(st)
             case (HoodieSchemaType.VARIANT, st: StructType) => validateVariantStructure(st)
             case _ =>
@@ -120,6 +155,11 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
     val schema = catalystType match {
       // Primitive types
       case BooleanType => HoodieSchema.create(HoodieSchemaType.BOOLEAN)
+      // ByteType, ShortType and CHAR read as INT8, INT16 and CHAR(n) only with the marker toSqlType writes for them;
+      // without it they read as INT and STRING, as for every schema written before these types existed.
+      case ByteType if hasTypeMarker(metadata, HoodieSchemaType.INT8) => HoodieSchema.createInt8()
+      case ShortType if hasTypeMarker(metadata, HoodieSchemaType.INT16) => HoodieSchema.createInt16()
+      case StringType if hasTypeMarker(metadata, HoodieSchemaType.CHAR) => typeMarker(metadata).get
       case ByteType | ShortType | IntegerType => HoodieSchema.create(HoodieSchemaType.INT)
       case LongType => HoodieSchema.create(HoodieSchemaType.LONG)
       case DateType => HoodieSchema.createDate()
@@ -140,9 +180,7 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         HoodieSchema.createDecimal(name, nameSpace, null, d.precision, d.scale, fixedSize)
 
       // Complex types
-      case ArrayType(elementSparkType, containsNull)
-        if metadata.contains(HoodieSchema.TYPE_METADATA_FIELD) &&
-          HoodieSchema.parseTypeDescriptor(metadata.getString(HoodieSchema.TYPE_METADATA_FIELD)).getType == HoodieSchemaType.VECTOR =>
+      case ArrayType(elementSparkType, containsNull) if hasTypeMarker(metadata, HoodieSchemaType.VECTOR) =>
         if (depth > 1) {
           throw new HoodieSchemaException(
             s"VECTOR column '$recordName' must be a top-level field. Nested VECTOR columns (inside STRUCT, ARRAY, or MAP) are not supported.")
@@ -175,9 +213,7 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         val valueSchema = toHoodieTypeNested(valueType, valueContainsNull, recordName, nameSpace, metadata, depth + 1)
         HoodieSchema.createMap(valueSchema)
 
-      case blobStruct: StructType if metadata.contains(HoodieSchema.TYPE_METADATA_FIELD) &&
-        HoodieSchema.parseTypeDescriptor(metadata.getString(HoodieSchema.TYPE_METADATA_FIELD)).getType == HoodieSchemaType.BLOB &&
-        isCanonicalBlobStruct(blobStruct) =>
+      case blobStruct: StructType if hasTypeMarker(metadata, HoodieSchemaType.BLOB) && isCanonicalBlobStruct(blobStruct) =>
         // Canonical RFC-100 BLOB layout. Pruned BLOB structs (Spark 3.3/3.4 keeps the
         // hudi_type=BLOB metadata on the outer StructField while dropping sibling inner
         // fields during nested schema pruning) fall through to the plain RECORD branch
@@ -185,9 +221,7 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         // data schema.
         HoodieSchema.createBlob()
 
-      case variantStruct: StructType if metadata.contains(HoodieSchema.TYPE_METADATA_FIELD) &&
-        HoodieSchema.parseTypeDescriptor(metadata.getString(HoodieSchema.TYPE_METADATA_FIELD)).getType == HoodieSchemaType.VARIANT &&
-        isCanonicalVariantStruct(variantStruct) =>
+      case variantStruct: StructType if hasTypeMarker(metadata, HoodieSchemaType.VARIANT) && isCanonicalVariantStruct(variantStruct) =>
         HoodieSchema.createVariant(recordName, nameSpace, null)
 
       // PushVariantIntoScan (Spark 4.1+) rewrites Variant to a struct of extractions; map
@@ -255,10 +289,11 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
     hoodieSchema.getType match {
       // Primitive types
       case HoodieSchemaType.INT => SchemaType(IntegerType, nullable = false)
-      // RFC-88 bug list: INT8 and INT16 read as IntegerType and CHAR(n) as StringType, as their values are handled
-      // today, not as ByteType, ShortType and CharType(n)
-      case HoodieSchemaType.INT8 | HoodieSchemaType.INT16 => SchemaType(IntegerType, nullable = false)
-      case HoodieSchemaType.STRING | HoodieSchemaType.ENUM | HoodieSchemaType.CHAR => SchemaType(StringType, nullable = false)
+      case HoodieSchemaType.INT8 => SchemaType(ByteType, nullable = false)
+      case HoodieSchemaType.INT16 => SchemaType(ShortType, nullable = false)
+      // CharType is replaced by StringType with the raw type in the field metadata at the end of toSqlType
+      case HoodieSchemaType.CHAR => SchemaType(CharType(hoodieSchema.asInstanceOf[HoodieSchema.Char].getLength), nullable = false)
+      case HoodieSchemaType.STRING | HoodieSchemaType.ENUM => SchemaType(StringType, nullable = false)
       case HoodieSchemaType.BOOLEAN => SchemaType(BooleanType, nullable = false)
       case HoodieSchemaType.BYTES | HoodieSchemaType.FIXED => SchemaType(BinaryType, nullable = false)
       case HoodieSchemaType.DOUBLE => SchemaType(DoubleType, nullable = false)
@@ -334,6 +369,7 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
           if (fieldSchema.isBlobField) {
             metadataBuilder.putString(HoodieSchema.TYPE_METADATA_FIELD, HoodieSchema.Blob.TYPE_DESCRIPTOR)
           }
+          narrowTypeMarker(fieldSchema).foreach(metadataBuilder.putString(HoodieSchema.TYPE_METADATA_FIELD, _))
           val metadata = metadataBuilder.build()
           // For BLOB: force nullable-everywhere at the Spark type layer. The RFC-100
           // canonical schema declares `type`, `reference.external_path`, and
@@ -411,6 +447,33 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
       case other =>
         throw new IncompatibleSchemaException(s"Unsupported HoodieSchemaType: $other")
     }
+  }
+
+  private val CHAR_MARKER = "(?i)CHAR\\s*\\(\\s*(\\d+)\\s*\\)".r
+
+  /**
+   * The marker for a field of type INT8, INT16 or CHAR(n), or an array or map of one, like the BLOB marker: Spark's
+   * ByteType, ShortType and StringType do not tell these types apart from INT and STRING in toHoodieType.
+   */
+  private def narrowTypeMarker(fieldSchema: HoodieSchema): Option[String] = {
+    val nonNull = fieldSchema.getNonNullType
+    val marked = nonNull.getType match {
+      case HoodieSchemaType.ARRAY => nonNull.getElementType.getNonNullType
+      case HoodieSchemaType.MAP => nonNull.getValueType.getNonNullType
+      case _ => nonNull
+    }
+    marked.getType match {
+      case HoodieSchemaType.INT8 | HoodieSchemaType.INT16 => Some(marked.getType.name)
+      case HoodieSchemaType.CHAR => Some(s"${HoodieSchemaType.CHAR.name}(${marked.asInstanceOf[HoodieSchema.Char].getLength})")
+      case _ => None
+    }
+  }
+
+  private def parseNarrowTypeMarker(descriptor: String): Option[HoodieSchema] = descriptor.trim match {
+    case d if d.equalsIgnoreCase(HoodieSchemaType.INT8.name) => Some(HoodieSchema.createInt8())
+    case d if d.equalsIgnoreCase(HoodieSchemaType.INT16.name) => Some(HoodieSchema.createInt16())
+    case CHAR_MARKER(length) => Some(HoodieSchema.createChar(length.toInt))
+    case _ => None
   }
 
   private lazy val expectedBlobStructType: StructType = toSqlType(HoodieSchema.createBlob())._1.asInstanceOf[StructType]

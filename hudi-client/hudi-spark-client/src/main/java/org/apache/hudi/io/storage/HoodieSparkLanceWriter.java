@@ -42,6 +42,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.spark.sql.avro.HoodieSparkSchemaConverters;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.ArrayType;
 import org.apache.spark.sql.types.DataType;
@@ -303,12 +304,7 @@ public class HoodieSparkLanceWriter extends HoodieBaseLanceWriter<InternalRow, U
   }
 
   private static boolean isBlobField(StructField field) {
-    Metadata md = field.metadata();
-    if (md == null || !md.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
-      return false;
-    }
-    return HoodieSchema.parseTypeDescriptor(md.getString(HoodieSchema.TYPE_METADATA_FIELD))
-        .getType() == HoodieSchemaType.BLOB;
+    return HoodieSparkSchemaConverters.hasTypeMarker(field.metadata(), HoodieSchemaType.BLOB);
   }
 
   private static DataType forceTypeNullable(DataType dt) {

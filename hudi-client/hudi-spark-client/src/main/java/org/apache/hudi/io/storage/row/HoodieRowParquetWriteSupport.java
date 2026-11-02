@@ -522,6 +522,8 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
       return (row, ordinal) -> recordConsumer.addBoolean(row.getBoolean(ordinal));
     } else if (dataType == DataTypes.DateType) {
       return (row, ordinal) -> recordConsumer.addInteger((Integer) dateRebaseFunction.apply(row.getInt(ordinal)));
+    } else if (dataType == DataTypes.ByteType) {
+      return (row, ordinal) -> recordConsumer.addInteger(row.getByte(ordinal));
     } else if (dataType == DataTypes.ShortType) {
       return (row, ordinal) -> recordConsumer.addInteger(row.getShort(ordinal));
     } else if (dataType == DataTypes.IntegerType || dataType instanceof YearMonthIntervalType) {
@@ -789,7 +791,12 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
     } else if (dataType == DataTypes.DateType) {
       return Types.primitive(INT32, repetition)
           .as(LogicalTypeAnnotation.dateType()).named(structField.name());
+    } else if (dataType == DataTypes.ByteType) {
+      // INT8 columns (Spark writes ByteType the same way)
+      return Types.primitive(INT32, repetition)
+          .as(LogicalTypeAnnotation.intType(8, true)).named(structField.name());
     } else if (dataType == DataTypes.ShortType) {
+      // INT16 columns; also ShortType values of INT columns, as written before INT16 existed
       return Types.primitive(INT32, repetition)
           .as(LogicalTypeAnnotation.intType(16, true)).named(structField.name());
     } else if (dataType == DataTypes.IntegerType || dataType instanceof YearMonthIntervalType) {

@@ -157,6 +157,13 @@ private[sql] class AvroDeserializer(rootAvroType: Schema,
             updater.setInt(ordinal, value.asInstanceOf[Int])
         }
 
+      // INT8 and INT16 columns are Avro ints read as ByteType and ShortType (HoodieSparkSchemaConverters.toSqlType)
+      case (INT, ByteType) => (updater, ordinal, value) =>
+        updater.setByte(ordinal, value.asInstanceOf[Int].toByte)
+
+      case (INT, ShortType) => (updater, ordinal, value) =>
+        updater.setShort(ordinal, value.asInstanceOf[Int].toShort)
+
       case (INT, DateType) => (updater, ordinal, value) =>
         val days = value match {
           case localDate: java.time.LocalDate => localDate.toEpochDay.toInt
