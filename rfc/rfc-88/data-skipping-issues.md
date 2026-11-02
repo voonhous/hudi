@@ -47,9 +47,15 @@ These came up while wiring the engine-neutral index planner (RFC-88 step 5, bran
 |---|---|---|---|
 | 8 | hudi-common (column stats from Parquet footers) | `LogicalTypeParquetAdapter#getValueTypeFromAnnotation` handles String, Decimal, Date, Time, Timestamp and UUID annotations and throws `Unsupported logical type annotation` for anything else, including `INT(8)` / `INT(16)`. Spark's row writer annotates `ShortType` columns `INT32 + INT(16)` today, so column stats over such files throw. Found by RFC-88 step 2b (MOR writes failed once files carried `INT(8)`), and fixed on the RFC-88 branch in b5eae82 (with a `TestValueType` case), not on master. | [`LogicalTypeParquetAdapter`](https://github.com/apache/hudi/blob/b0d16f94b3b5f4ce790a9a09e41ebf891b35a53e/hudi-common/src/main/java/org/apache/hudi/metadata/stats/LogicalTypeParquetAdapter.java#L68) |
 
+**Wrong stored values**
+
+| # | Engine | Bug | Where |
+|---|---|---|---|
+| 9 | Flink | A table with a `TINYINT` or `SMALLINT` column and no explicit schema stores it as plain `INT32` holding the raw byte pattern: -128 is stored as 128, and -1 as 255 or 65535. Flink reads the values back correctly only because it truncates them; other engines read the stored numbers, and column stats are wrong. `WHERE f_tiny < 0` returns no rows in Flink even with data skipping off, because the Parquet row-group filter prunes on those stats. Reproduced with a probe during RFC-88 step 2b; not fixed (needs the step 2c switch to INT8 / INT16 plus a compatibility path for existing tables). | Flink DDL inference maps TINYINT / SMALLINT to INT (`HoodieSchemaConverter#convertToSchema`) while the Parquet writer writes the Flink value |
+
 **Already tracked in apache/hudi#20449, with one more reproduction**
 
 - [apache/hudi#20430](https://github.com/apache/hudi/issues/20430) (`LIKE 'prefix%'`): reproduced on a MOR table. Log files that hold only `beta-00xx` values are pruned for `s LIKE 'beta%'`, and the query returned 0 of 50 matching rows. On the COW variant of the same data, the updated base files still held `alpha-` values, so their minimum fell below the prefix and the bug did not show.
 
-Spark issues are tracked in the umbrella [apache/hudi#20449](https://github.com/apache/hudi/issues/20449); items 1–3 and 5–7 are Flink-side and have no issue yet; item 8 has none either.
+Spark issues are tracked in the umbrella [apache/hudi#20449](https://github.com/apache/hudi/issues/20449); items 1–3 and 5–7 are Flink-side and have no issue yet; items 8 and 9 have none either.
 
