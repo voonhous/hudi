@@ -63,7 +63,7 @@ public class TestHoodieSchemaInt8Int16Char {
 
   private static final String INT8_JSON = "{\"type\":\"int\",\"logicalType\":\"int8\"}";
   private static final String INT16_JSON = "{\"type\":\"int\",\"logicalType\":\"int16\"}";
-  private static final String CHAR_10_JSON = "{\"type\":\"string\",\"logicalType\":\"char\",\"length\":10}";
+  private static final String CHAR_10_JSON = "{\"type\":\"string\",\"logicalType\":\"char\",\"length\":10,\"maxLength\":10}";
 
   // -------------------------------------------------------------------------
   //  Factories and the Avro JSON form

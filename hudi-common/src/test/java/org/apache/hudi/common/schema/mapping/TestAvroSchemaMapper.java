@@ -51,7 +51,7 @@ class TestAvroSchemaMapper extends FormatSchemaMapperContractTest<Schema> {
     Map<String, Schema> types = new HashMap<>();
     types.put("int8", new Schema.Parser().parse("{\"type\":\"int\",\"logicalType\":\"int8\"}"));
     types.put("int16", new Schema.Parser().parse("{\"type\":\"int\",\"logicalType\":\"int16\"}"));
-    types.put("char_10", new Schema.Parser().parse("{\"type\":\"string\",\"logicalType\":\"char\",\"length\":10}"));
+    types.put("char_10", new Schema.Parser().parse("{\"type\":\"string\",\"logicalType\":\"char\",\"length\":10,\"maxLength\":10}"));
     types.put("int", Schema.create(Schema.Type.INT));
     types.put("string", Schema.create(Schema.Type.STRING));
     return types;

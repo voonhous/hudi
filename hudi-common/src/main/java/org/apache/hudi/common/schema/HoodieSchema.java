@@ -2629,14 +2629,19 @@ public class HoodieSchema implements Serializable {
    * {@link HoodieSchemaType#CHAR}. The length is stored in the {@code length} property, the SQL name of the
    * parameter, as Avro's {@code fixed} stores {@code size}.
    *
-   * <p>Hive's AvroSerDe writes {@code {"logicalType":"char","maxLength":n}}. That form has no {@code length}, so
-   * {@link CharLogicalTypeFactory} does not take it and the column stays STRING, as it is today (where
-   * {@code HiveTypeUtils} still reads it as Hive char(n)). A reader that does not know {@code char} reads the column
-   * as a plain {@code string}.
+   * <p>Hudi writes both {@code length} and Hive's {@code maxLength}, so Hive's AvroSerDe reads the column as
+   * {@code char(n)} too. Only {@code length} makes a schema Hudi's CHAR: Hive's own form,
+   * {@code {"logicalType":"char","maxLength":n}}, has no {@code length}, so {@link CharLogicalTypeFactory} does not
+   * take it and the column stays STRING, as it is today (where {@code HiveTypeUtils} still reads it as Hive char(n)).
+   * A reader that does not know {@code char} reads the column as a plain {@code string}.
    */
   public static final class CharLogicalType extends LogicalType {
     private static final String CHAR_LOGICAL_TYPE_NAME = "char";
     private static final String PROP_LENGTH = "length";
+    /**
+     * Hive AvroSerDe's name for the length, written as well so Hive reads the column as {@code char(n)}.
+     */
+    private static final String PROP_HIVE_MAX_LENGTH = "maxLength";
 
     private final int length;
 
@@ -2654,6 +2659,7 @@ public class HoodieSchema implements Serializable {
     public Schema addToSchema(Schema schema) {
       super.addToSchema(schema);
       schema.addProp(PROP_LENGTH, length);
+      schema.addProp(PROP_HIVE_MAX_LENGTH, length);
       return schema;
     }
 
