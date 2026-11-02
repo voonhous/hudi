@@ -27,6 +27,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.metadata.MetadataPartitionType;
+import org.apache.hudi.metadata.planner.IndexPlannerMode;
 
 import javax.annotation.concurrent.Immutable;
 
@@ -37,6 +38,7 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -723,6 +725,18 @@ public final class HoodieMetadataConfig extends HoodieConfig {
           + "file counts. Emitting these requires building a HoodieTableFileSystemView for the metadata table on "
           + "the driver, which adds memory pressure at scale; leave disabled unless you need the breakdown.");
 
+  public static final ConfigProperty<String> INDEX_PLANNER_MODE = ConfigProperty
+      .key(METADATA_PREFIX + ".index.planner.mode")
+      .defaultValue("OFF")
+      .withValidValues("OFF", "COMPARE", "ON")
+      .markAdvanced()
+      .sinceVersion("1.3.0")
+      .withDocumentation("Data skipping through the engine-neutral index planner of RFC-88 (record index, partition "
+          + "stats and column stats lookups shared by every engine). OFF: only the engine's own data skipping runs. "
+          + "COMPARE: both run, the engine's own result is used, and every file one prunes but the other keeps is "
+          + "logged, so the planner can be validated on real queries. ON: the planner replaces the engine's own "
+          + "record index, partition stats and column stats pruning.");
+
   public long getMaxLogFileSize() {
     return getLong(MAX_LOG_FILE_SIZE_BYTES_PROP);
   }
@@ -769,6 +783,10 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
   public boolean isBloomFilterIndexEnabled() {
     return getBooleanOrDefault(ENABLE_METADATA_INDEX_BLOOM_FILTER);
+  }
+
+  public IndexPlannerMode getIndexPlannerMode() {
+    return IndexPlannerMode.valueOf(getStringOrDefault(INDEX_PLANNER_MODE).toUpperCase(Locale.ROOT));
   }
 
   public boolean isColumnStatsIndexEnabled() {
