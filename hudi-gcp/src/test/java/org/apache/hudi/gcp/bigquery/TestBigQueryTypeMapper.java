@@ -105,16 +105,12 @@ class TestBigQueryTypeMapper extends TypeSystemMapperContractTest<Field> {
     gaps.put(ROUND_TRIP + "/map_long", mapNullable);
     gaps.put(ROUND_TRIP + "/map_long.in_struct", mapNullable);
 
-    // The kit checks a sample by its top-level type: ARRAY and RECORD are NATIVE, so array_int and struct are round
-    // tripped without the hint, but they hold an INT, which BigQuery stores as INT64 (LOSSY) and only the hint restores.
-    String nestedInt = "[kit] NATIVE container checked without the hint holds an INT, which reads back as LONG (INT64)";
-    gaps.put(ROUND_TRIP + "/array_int.*", nestedInt);
-    gaps.put(ROUND_TRIP + "/struct.*", nestedInt);
-    gaps.put(ROUND_TRIP + "/array_int.nullable", "BigQuery REPEATED fields are never NULL, so a nullable array reads back required; " + nestedInt);
+    gaps.put(ROUND_TRIP + "/array_int.nullable", "BigQuery REPEATED fields are never NULL, so a nullable array reads back required");
     gaps.put(ROUND_TRIP + "/array_int.in_array", "BigQuery has no array of arrays and BigQuerySchemaResolver does not fail fast: "
         + "array<array<int>> is written as one REPEATED INT64, dropping the inner level");
-    gaps.put(ROUND_TRIP + "/array_int.in_map", mapNullable + "; " + nestedInt);
-    gaps.put(ROUND_TRIP + "/struct.in_map", mapNullable + "; " + nestedInt);
+    gaps.put(ROUND_TRIP + "/array_int.in_map", mapNullable);
+    gaps.put(ROUND_TRIP + "/struct.in_map", mapNullable);
+    gaps.put(ROUND_TRIP + "/null", "BigQuerySchemaResolver silently skips NULL columns instead of failing fast");
     return gaps;
   }
 

@@ -133,9 +133,23 @@ class TestSparkTypeMapper extends TypeSystemMapperContractTest<DataType> {
     return ((StructType) record).apply(column).dataType();
   }
 
+  /**
+   * Spark keeps per-column markers in StructField metadata.
+   */
+  @Override
+  protected boolean targetHasMetadata() {
+    return true;
+  }
+
   @Override
   protected Map<String, String> knownGaps() {
     Map<String, String> gaps = new HashMap<>();
+    String noMarker = "HoodieSparkSchemaConverters writes no hudi_type marker for %s, so without a hint it reads back as %s";
+    gaps.put("marker_declared/ENUM", String.format(noMarker, "ENUM", "STRING"));
+    gaps.put("marker_declared/FIXED", String.format(noMarker, "FIXED", "BYTES"));
+    gaps.put("marker_declared/UUID", String.format(noMarker, "UUID", "STRING"));
+    gaps.put("marker_declared/TIME", String.format(noMarker, "TIME", "INT / LONG"));
+    gaps.put("marker_declared/TIMESTAMP", String.format(noMarker, "TIMESTAMP(millis)", "TIMESTAMP(micros)"));
     gaps.put("expected_output/time_millis",
         "HoodieSparkSchemaConverters.toSqlType maps TIME(millis) to IntegerType (millis), RFC-99 asks LongType (micros)");
     if (!SPARK_4) {

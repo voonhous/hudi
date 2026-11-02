@@ -22,6 +22,9 @@ import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
@@ -37,9 +40,12 @@ import java.util.function.Function;
  * sync modules plug in without {@code hudi-common} depending on them.
  *
  * <p>Each module lists its implementations in {@code META-INF/services/<interface name>}. A key registered twice is
- * an error, so two modules cannot silently disagree on the mapping for the same boundary.
+ * an error, so two modules cannot silently disagree on the mapping for the same boundary. An implementation whose
+ * own dependencies are missing from the classpath is skipped with a warning.
  */
 public final class SchemaMappers {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SchemaMappers.class);
 
   private static final Map<Class<?>, Map<String, ?>> REGISTRY = new ConcurrentHashMap<>();
 
@@ -143,8 +149,12 @@ public final class SchemaMappers {
           return;
         }
         mapper = it.next();
-      } catch (ServiceConfigurationError e) {
-        throw new HoodieException("Failed to load " + service.getSimpleName() + " implementations", e);
+      } catch (ServiceConfigurationError | LinkageError e) {
+        // A module can be on the classpath without the libraries its mapper needs (e.g. hudi-hadoop-mr without
+        // hive-serde). Skip that mapper rather than losing every other one; looking it up then fails with
+        // "No ... registered".
+        LOG.warn("Skipping a {} that cannot be loaded: {}", service.getSimpleName(), e.toString());
+        continue;
       }
       String key = keyFn.apply(mapper);
       S existing = found.get(key);

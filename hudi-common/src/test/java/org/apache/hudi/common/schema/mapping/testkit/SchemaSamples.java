@@ -87,6 +87,12 @@ public final class SchemaSamples {
   public static List<SchemaCase> cases(SchemaSample sample) {
     List<SchemaCase> cases = new ArrayList<>();
     HoodieSchema s = sample.schema();
+    if (sample.type() == HoodieSchemaType.NULL) {
+      // A record whose only column is NULL is empty in most targets, which fails for the wrong reason.
+      cases.add(new SchemaCase(sample, sample.id(), HoodieSchema.createRecord(RECORD_NAME, RECORD_NAMESPACE, null, Arrays.asList(
+          HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)), HoodieSchemaField.of(COLUMN, s)))));
+      return cases;
+    }
     cases.add(new SchemaCase(sample, sample.id(), record(s)));
     if (sample.nesting() != SchemaSample.Nesting.NONE) {
       cases.add(new SchemaCase(sample, sample.id() + ".nullable", record(HoodieSchema.createNullable(s))));

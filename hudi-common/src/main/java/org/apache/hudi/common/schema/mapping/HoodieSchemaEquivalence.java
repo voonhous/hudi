@@ -73,7 +73,7 @@ public final class HoodieSchemaEquivalence {
     List<String> diffs = differences(expected, actual, mode);
     if (!diffs.isEmpty()) {
       throw new AssertionError("Schemas are not equivalent (" + mode + "):\n  " + String.join("\n  ", diffs)
-          + "\nexpected: " + expected + "\nactual:   " + actual);
+          + "\nexpected: " + render(expected) + "\nactual:   " + render(actual));
     }
   }
 
@@ -214,6 +214,17 @@ public final class HoodieSchemaEquivalence {
   private static void check(String path, String what, Object expected, Object actual, List<String> diffs) {
     if (!Objects.equals(expected, actual)) {
       diffs.add(path + ": expected " + what + " " + expected + " but was " + actual);
+    }
+  }
+
+  /**
+   * The schema as JSON, or a note when Avro cannot render it (e.g. two different records with the same name).
+   */
+  private static String render(HoodieSchema schema) {
+    try {
+      return String.valueOf(schema);
+    } catch (RuntimeException e) {
+      return "<cannot render: " + e.getMessage() + ">";
     }
   }
 

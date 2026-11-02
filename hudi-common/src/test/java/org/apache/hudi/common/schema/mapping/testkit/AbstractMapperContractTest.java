@@ -57,12 +57,17 @@ import static org.junit.jupiter.api.Assertions.fail;
  *   for LOSSY and UNSUPPORTED.</li>
  *   <li>{@value #SUPPORT_EXPECTED}: the declared level equals {@link #expectedSupport()}, the level the specification
  *   (RFC-99's interoperability table) asks for.</li>
- *   <li>{@value #ROUND_TRIP}: for every sample in every shape ({@link SchemaSamples#cases}), NATIVE types satisfy
+ *   <li>{@value #ROUND_TRIP}: for every sample in every shape ({@link SchemaSamples#cases}), NATIVE cases satisfy
  *   {@code from(to(s), empty) ~ s}, LOSSY types {@code from(to(s), hint = s) ~ s}, and UNSUPPORTED types fail in
  *   {@code to(s)}. {@code ~} is {@link HoodieSchemaEquivalence}.</li>
  *   <li>{@value #MARKER_ROUND_TRIP}: LOSSY types that name a marker also satisfy {@code from(to(s), empty) ~ s}.</li>
  *   <li>{@value #EXPECTED_OUTPUT}: {@code to(s)} produces the type listed in {@link #expectedColumnTypes()}.</li>
+ *   <li>{@value #MARKER_DECLARED}: when the target has field or file metadata ({@link #targetHasMetadata()}), every
+ *   LOSSY type names a marker.</li>
  * </ul>
+ *
+ * <p>A case is checked at the level of the least supported type anywhere in it: a struct holding a LOSSY column is
+ * round-tripped with the hint, and a map of an UNSUPPORTED type must fail.
  *
  * <p>A check that fails today because of a known bug is listed in {@link #knownGaps()} with the reason. Known gaps
  * are strict: a listed check that starts passing fails, so the entry is removed with the fix. Together the known
@@ -77,9 +82,10 @@ public abstract class AbstractMapperContractTest<X> {
   public static final String ROUND_TRIP = "round_trip";
   public static final String MARKER_ROUND_TRIP = "marker_round_trip";
   public static final String EXPECTED_OUTPUT = "expected_output";
+  public static final String MARKER_DECLARED = "marker_declared";
 
   private static final List<String> CHECKS =
-      Arrays.asList(SUPPORT_DECLARED, SUPPORT_EXPECTED, ROUND_TRIP, MARKER_ROUND_TRIP, EXPECTED_OUTPUT);
+      Arrays.asList(SUPPORT_DECLARED, SUPPORT_EXPECTED, ROUND_TRIP, MARKER_ROUND_TRIP, EXPECTED_OUTPUT, MARKER_DECLARED);
 
   /**
    * Converts with the options under test.
@@ -123,6 +129,14 @@ public abstract class AbstractMapperContractTest<X> {
   }
 
   /**
+   * Whether the target can store a per-column marker (field metadata, as Spark's {@code StructField} metadata, or
+   * file metadata). When true, {@value #MARKER_DECLARED} requires a marker for every LOSSY type.
+   */
+  protected boolean targetHasMetadata() {
+    return false;
+  }
+
+  /**
    * Checks that fail today, keyed {@code <check>/<case id>} (e.g. {@code round_trip/uuid.in_map}),
    * {@code <check>/<sample id>.*} for a sample in every shape (e.g. {@code round_trip/uuid.*}) or
    * {@code <check>/<TYPE>} for support checks (e.g. {@code support_expected/UUID}), with the reason.
@@ -154,9 +168,9 @@ public abstract class AbstractMapperContractTest<X> {
   @TestFactory
   Stream<DynamicTest> roundTrip() {
     return SchemaSamples.allCases().stream().map(c -> check(ROUND_TRIP, c.id(), c.sample().id(), () -> {
-      TypeSupport support = support(c.sample().type());
       HoodieSchema s = c.schema();
-      switch (support.level()) {
+      TypeSupport worst = worstSupport(s);
+      switch (worst.level()) {
         case NATIVE:
           HoodieSchemaEquivalence.assertEquivalent(s, from(to(s), Option.empty()), equivalenceMode());
           break;
@@ -170,10 +184,10 @@ public abstract class AbstractMapperContractTest<X> {
           } catch (Exception expected) {
             return;
           }
-          fail(c.sample().type() + " is declared UNSUPPORTED (" + support.reason() + ") but converted to " + converted);
+          fail(c.id() + " contains a type declared UNSUPPORTED (" + worst.reason() + ") but converted to " + converted);
           break;
         default:
-          throw new IllegalStateException("Unknown level " + support.level());
+          throw new IllegalStateException("Unknown level " + worst.level());
       }
     }));
   }
@@ -183,10 +197,26 @@ public abstract class AbstractMapperContractTest<X> {
     return SchemaSamples.allCases().stream()
         .filter(c -> {
           TypeSupport support = support(c.sample().type());
-          return support.isLossy() && support.marker().isPresent();
+          return support.isLossy() && support.marker().isPresent() && worstSupport(c.schema()).isLossy()
+              && typesIn(c.schema()).stream().filter(t -> support(t).isLossy()).allMatch(t -> support(t).marker().isPresent());
         })
         .map(c -> check(MARKER_ROUND_TRIP, c.id(), c.sample().id(),
             () -> HoodieSchemaEquivalence.assertEquivalent(c.schema(), from(to(c.schema()), Option.empty()), equivalenceMode())));
+  }
+
+  /**
+   * Targets with field or file metadata must name a marker for every LOSSY type (RFC-88: "targets with field or file
+   * metadata write one for every LOSSY column"). Checked only when {@link #targetHasMetadata()} is true.
+   */
+  @TestFactory
+  Stream<DynamicTest> markerDeclared() {
+    if (!targetHasMetadata()) {
+      return Stream.empty();
+    }
+    return Arrays.stream(HoodieSchemaType.values())
+        .filter(type -> support(type).isLossy())
+        .map(type -> check(MARKER_DECLARED, type.name(), () -> assertTrue(support(type).marker().isPresent(),
+            "LOSSY " + type + " names no marker, so it reads back wrong without a hint: " + support(type))));
   }
 
   @TestFactory
@@ -211,7 +241,7 @@ public abstract class AbstractMapperContractTest<X> {
       String checkName = slash < 0 ? key : key.substring(0, slash);
       String target = slash < 0 ? "" : key.substring(slash + 1);
       boolean known = CHECKS.contains(checkName)
-          && (checkName.startsWith("support_") ? typeNames.contains(target)
+          && (checkName.startsWith("support_") || checkName.equals(MARKER_DECLARED) ? typeNames.contains(target)
           : checkName.equals(EXPECTED_OUTPUT) ? SchemaSamples.ids().contains(target)
           : target.endsWith(".*") ? SchemaSamples.ids().contains(target.substring(0, target.length() - 2))
           : caseIds.contains(target));
@@ -254,6 +284,53 @@ public abstract class AbstractMapperContractTest<X> {
       }
       fail("Known gap '" + key + "' (" + gap + ") now passes; remove it from knownGaps()");
     });
+  }
+
+  /**
+   * The least supported type anywhere in the schema: UNSUPPORTED beats LOSSY beats NATIVE.
+   */
+  private TypeSupport worstSupport(HoodieSchema schema) {
+    TypeSupport worst = TypeSupport.nativeType();
+    for (HoodieSchemaType type : typesIn(schema)) {
+      TypeSupport support = support(type);
+      if (support.level().ordinal() > worst.level().ordinal()) {
+        worst = support;
+      }
+    }
+    return worst;
+  }
+
+  /**
+   * Every type in the schema, looking through nullable unions but not into VARIANT, BLOB or VECTOR internals.
+   */
+  static Set<HoodieSchemaType> typesIn(HoodieSchema schema) {
+    Set<HoodieSchemaType> types = EnumSet.noneOf(HoodieSchemaType.class);
+    collectTypes(schema, types);
+    return types;
+  }
+
+  private static void collectTypes(HoodieSchema schema, Set<HoodieSchemaType> types) {
+    if (schema.isNullable() && !schema.isComplexUnion()) {
+      collectTypes(schema.getNonNullType(), types);
+      return;
+    }
+    types.add(schema.getType());
+    switch (schema.getType()) {
+      case RECORD:
+        schema.getFields().forEach(f -> collectTypes(f.schema(), types));
+        break;
+      case ARRAY:
+        collectTypes(schema.getElementType(), types);
+        break;
+      case MAP:
+        collectTypes(schema.getValueType(), types);
+        break;
+      case UNION:
+        schema.getTypes().stream().filter(t -> t.getType() != HoodieSchemaType.NULL).forEach(t -> collectTypes(t, types));
+        break;
+      default:
+        break;
+    }
   }
 
   /**
