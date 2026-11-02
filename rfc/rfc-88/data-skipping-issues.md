@@ -41,9 +41,15 @@ These came up while wiring the engine-neutral index planner (RFC-88 step 5, bran
 | 6 | Flink / Java writers | Known as HUDI-8801: `updateColumnsToIndexWithColStats` is a no-op, so the source fields of the column stats index definition stay empty when column stats are enabled at table creation. Spark's `ColumnStatsIndexSupport` only uses the listed columns, so on such tables it uses no column or partition stats. | [`HoodieFlinkWriteClient`](https://github.com/apache/hudi/blob/b0d16f94b3b5f4ce790a9a09e41ebf891b35a53e/hudi-client/hudi-flink-client/src/main/java/org/apache/hudi/client/HoodieFlinkWriteClient.java#L556) |
 | 7 | Flink | Flink skips the partitioned record index above 3 candidate partitions, while Spark allows 10. | [`RecordLevelIndex.MAX_PARTITIONS`](https://github.com/apache/hudi/blob/b0d16f94b3b5f4ce790a9a09e41ebf891b35a53e/hudi-flink-datasource/hudi-flink/src/main/java/org/apache/hudi/source/stats/RecordLevelIndex.java#L69) |
 
+**Failures (indexing throws)**
+
+| # | Engine | Bug | Where |
+|---|---|---|---|
+| 8 | hudi-common (column stats from Parquet footers) | `LogicalTypeParquetAdapter#getValueTypeFromAnnotation` handles String, Decimal, Date, Time, Timestamp and UUID annotations and throws `Unsupported logical type annotation` for anything else, including `INT(8)` / `INT(16)`. Spark's row writer annotates `ShortType` columns `INT32 + INT(16)` today, so column stats over such files throw. Found by RFC-88 step 2b (MOR writes failed once files carried `INT(8)`), and fixed on the RFC-88 branch in b5eae82 (with a `TestValueType` case), not on master. | [`LogicalTypeParquetAdapter`](https://github.com/apache/hudi/blob/b0d16f94b3b5f4ce790a9a09e41ebf891b35a53e/hudi-common/src/main/java/org/apache/hudi/metadata/stats/LogicalTypeParquetAdapter.java#L68) |
+
 **Already tracked in apache/hudi#20449, with one more reproduction**
 
 - [apache/hudi#20430](https://github.com/apache/hudi/issues/20430) (`LIKE 'prefix%'`): reproduced on a MOR table. Log files that hold only `beta-00xx` values are pruned for `s LIKE 'beta%'`, and the query returned 0 of 50 matching rows. On the COW variant of the same data, the updated base files still held `alpha-` values, so their minimum fell below the prefix and the bug did not show.
 
-Spark issues are tracked in the umbrella [apache/hudi#20449](https://github.com/apache/hudi/issues/20449); items 1–3 and 5–7 are Flink-side and have no issue yet.
+Spark issues are tracked in the umbrella [apache/hudi#20449](https://github.com/apache/hudi/issues/20449); items 1–3 and 5–7 are Flink-side and have no issue yet; item 8 has none either.
 
