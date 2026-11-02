@@ -45,6 +45,16 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
   @transient protected lazy val metadataTable: HoodieTableMetadata =
     metaClient.getTableFormat.getMetadataFactory.create(engineCtx, metaClient.getStorage, metadataConfig, metaClient.getBasePath.toString)
 
+  /**
+   * The metadata table this index support reads, shared with the index planner of the file index.
+   */
+  private[hudi] def getMetadataTable: HoodieTableMetadata = metadataTable
+
+  /**
+   * The engine context this index support reads the metadata table with, shared with the index planner of the file index.
+   */
+  private[hudi] def getEngineContext: HoodieSparkEngineContext = engineCtx
+
   def getIndexName: String
 
   def isIndexAvailable: Boolean

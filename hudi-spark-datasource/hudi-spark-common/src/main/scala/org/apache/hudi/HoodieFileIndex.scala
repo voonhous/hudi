@@ -32,6 +32,8 @@ import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.index.HoodieIndex.IndexType
 import org.apache.hudi.index.bucket.partition.PartitionBucketIndexUtils
 import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
+import org.apache.hudi.metadata.{HoodieTableMetadataUtil, MetadataPartitionType}
+import org.apache.hudi.metadata.planner.{IndexPlannerComparison, IndexPlannerMode}
 import org.apache.hudi.storage.{StoragePath, StoragePathInfo}
 import org.apache.hudi.util.JFunction
 
@@ -50,9 +52,11 @@ import org.apache.spark.unsafe.types.UTF8String
 import javax.annotation.concurrent.NotThreadSafe
 
 import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.stream.Collectors
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 import scala.util.control.NonFatal
 
@@ -134,6 +138,21 @@ case class HoodieFileIndex(spark: SparkSession,
     new BloomFiltersIndexSupport(spark, metadataConfig, metaClient),
     new ColumnStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
   )
+
+  /**
+   * The index planner of RFC-88, created only when [[indexPlannerMode]] is COMPARE or ON. It reads the metadata table
+   * the column stats support reads.
+   */
+  @transient private lazy val indexPlanner: SparkIndexPlanner = {
+    val columnStatsSupport = indicesSupport.find(_.getIndexName == ColumnStatsIndexSupport.INDEX_NAME).get
+    new SparkIndexPlanner(metaClient, rawHoodieSchema, columnStatsSupport.getMetadataTable, columnStatsSupport.getEngineContext)
+  }
+
+  /**
+   * The comparisons made in COMPARE mode, by stage ("partition stats" or "data skipping"), in order.
+   */
+  @transient private[hudi] lazy val indexPlannerComparisons: mutable.ListBuffer[(String, IndexPlannerComparison)] =
+    mutable.ListBuffer.empty
 
   private val enableHoodieExtension = spark.sessionState.conf.getConfString("spark.sql.extensions", "")
     .split(",")
@@ -274,8 +293,13 @@ case class HoodieFileIndex(spark: SparkSession,
       //    - Col-Stats Index is present
       //    - Record-level Index is present
       //    - List of predicates (filters) is present
+      val plannerMode = indexPlannerMode
       val candidateFilesNamesOpt: Option[Set[String]] =
-        lookupCandidateFilesInMetadataTable(dataFilters, prunedPartitionsAndFileSlices, isPruned) match {
+        (if (plannerMode == IndexPlannerMode.ON) {
+          lookupCandidateFilesWithIndexPlanner(dataFilters, prunedPartitionsAndFileSlices, isPruned)
+        } else {
+          lookupCandidateFilesInMetadataTable(dataFilters, prunedPartitionsAndFileSlices, isPruned)
+        }) match {
         case Success(opt) => opt
         case Failure(e) =>
           logError("Failed to lookup candidate files in File Index", e)
@@ -284,6 +308,9 @@ case class HoodieFileIndex(spark: SparkSession,
             case DataSkippingFailureMode.Fallback.value => Option.empty
             case DataSkippingFailureMode.Strict.value => throw new HoodieException(e);
           }
+      }
+      if (plannerMode == IndexPlannerMode.COMPARE) {
+        compareDataSkipping(dataFilters, prunedPartitionsAndFileSlices, isPruned, candidateFilesNamesOpt)
       }
 
       logDebug(s"Overlapping candidate files from Column Stats or Record Level Index: ${candidateFilesNamesOpt.getOrElse(Set.empty)}")
@@ -352,8 +379,17 @@ case class HoodieFileIndex(spark: SparkSession,
       } else if (isPartitionedTable && isDataSkippingEnabled) {
         // For partitioned table and no partition filters, if data skipping is enabled,
         // try using the PARTITION_STATS index to prune the partitions
-        val prunedPartitionPaths = new PartitionStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
-          .prunePartitions(this, dataFilters)
+        val plannerMode = indexPlannerMode
+        val prunedPartitionPaths = if (plannerMode == IndexPlannerMode.ON) {
+          prunePartitionsWithIndexPlanner(dataFilters)
+        } else {
+          val prunedByPartitionStats = new PartitionStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
+            .prunePartitions(this, dataFilters)
+          if (plannerMode == IndexPlannerMode.COMPARE) {
+            comparePartitionPruning(dataFilters, prunedByPartitionStats)
+          }
+          prunedByPartitionStats
+        }
         if (prunedPartitionPaths.nonEmpty) {
           try {
             (true, prunedPartitionPaths.get.map(e => convertToPartitionPath(e)).toSeq)
@@ -453,6 +489,142 @@ case class HoodieFileIndex(spark: SparkSession,
     Option.empty
   }
 
+  /**
+   * [[lookupCandidateFilesInMetadataTable]] with the index planner of RFC-88 in place of the record level index and
+   * column stats supports, at their positions in [[indicesSupport]]; the other supports run as they do there.
+   */
+  // scalastyle:off return
+  private def lookupCandidateFilesWithIndexPlanner(queryFilters: Seq[Expression],
+                                                   prunedPartitionsAndFileSlices: Seq[(Option[BaseHoodieTableFileIndex.PartitionPath], Seq[FileSlice])],
+                                                   shouldPushDownFilesFilter: Boolean): Try[Option[Set[String]]] = Try {
+    lazy val queryReferencedColumns = collectReferencedColumns(spark, queryFilters, schema)
+    if (isDataSkippingEnabled) {
+      lazy val plannerFilter = indexPlanner.toHudiFilter(queryFilters)
+      lazy val plannerAvailable = indexPlannerAvailableIndexes
+      lazy val plannerFiles = prunedPartitionsAndFileSlices.map { case (partitionOpt, fileSlices) =>
+        (partitionOpt.map(_.getPath).getOrElse(""), fileSlices.flatMap(fileSlice => RecordLevelIndexSupport.getFileNames(fileSlice, this)))
+      }
+      for (indexSupport: SparkBaseIndexSupport <- indicesSupport) {
+        val prunedFileNames = HoodieFileIndex.indexPlannerIndexOf(indexSupport) match {
+          case Some(index) =>
+            if (plannerAvailable.contains(index) && plannerFilter.nonEmpty) {
+              lookupWithIndexPlanner(index, plannerFilter.get, plannerAvailable, plannerFiles)
+            } else {
+              Option.empty
+            }
+          case None =>
+            if (indexSupport.isIndexAvailable && indexSupport.supportsQueryType(options)) {
+              indexSupport.computeCandidateIsStrict(spark, this, queryFilters, queryReferencedColumns,
+                prunedPartitionsAndFileSlices, shouldPushDownFilesFilter)
+            } else {
+              Option.empty
+            }
+        }
+        if (prunedFileNames.nonEmpty) {
+          return Try(prunedFileNames)
+        }
+      }
+    }
+    validateConfig()
+    Option.empty
+  }
+  // scalastyle:on return
+
+  /**
+   * The file-level indexes the planner may use for this query: those whose support
+   * [[lookupCandidateFilesInMetadataTable]] would run (available, and supporting the query type).
+   */
+  private def indexPlannerAvailableIndexes: Set[MetadataPartitionType] = {
+    indicesSupport.flatMap(indexSupport => HoodieFileIndex.indexPlannerIndexOf(indexSupport)
+      .filter(_ => indexSupport.isIndexAvailable && indexSupport.supportsQueryType(options))).toSet
+  }
+
+  /**
+   * One planner lookup; a failure is logged and prunes nothing, as a failing index support does in the fallback mode.
+   */
+  private def lookupWithIndexPlanner(index: MetadataPartitionType,
+                                     filter: org.apache.hudi.common.expression.Expression,
+                                     available: Set[MetadataPartitionType],
+                                     filesByPartition: Seq[(String, Seq[String])]): Option[Set[String]] = {
+    try {
+      val result = indexPlanner.lookup(index, filter, available, filesByPartition)
+      if (result.isAll) Option.empty else Some(result.fileNames.asScala.toSet)
+    } catch {
+      case NonFatal(e) =>
+        logWarning(s"Index planner lookup of $index failed; it does not prune", e)
+        Option.empty
+    }
+  }
+
+  /**
+   * Partition pruning with the PARTITION_STATS lookup of the planner, in place of
+   * [[PartitionStatsIndexSupport.prunePartitions]]. A failure is logged and prunes nothing.
+   *
+   * @return the partition paths kept, or empty if it does not prune
+   */
+  private def prunePartitionsWithIndexPlanner(dataFilters: Seq[Expression]): Option[Set[String]] = {
+    try {
+      prunePartitionsWithIndexPlannerOrFail(dataFilters)
+    } catch {
+      case NonFatal(e) =>
+        logWarning("Index planner partition stats lookup failed; it does not prune", e)
+        Option.empty
+    }
+  }
+
+  private def prunePartitionsWithIndexPlannerOrFail(dataFilters: Seq[Expression]): Option[Set[String]] = {
+    // the conditions of PartitionStatsIndexSupport.isIndexAvailable; the caller checked the others
+    val available = metadataConfig.isEnabled &&
+      metaClient.getTableConfig.getMetadataPartitions.contains(HoodieTableMetadataUtil.PARTITION_NAME_PARTITION_STATS) &&
+      metaClient.getIndexMetadata.isPresent
+    if (!available || dataFilters.isEmpty) {
+      Option.empty
+    } else {
+      indexPlanner.toHudiFilter(dataFilters)
+        .flatMap(filter => indexPlanner.prunePartitions(filter, listMatchingPartitionPaths(Seq.empty).map(_.getPath)))
+    }
+  }
+
+  /**
+   * COMPARE mode: the partitions the planner's PARTITION_STATS lookup keeps against those
+   * [[PartitionStatsIndexSupport]] keeps, over every partition. Never fails.
+   */
+  private def comparePartitionPruning(dataFilters: Seq[Expression], engine: Option[Set[String]]): Unit = {
+    try {
+      val partitions = listMatchingPartitionPaths(Seq.empty).map(_.getPath)
+      val planner = prunePartitionsWithIndexPlannerOrFail(dataFilters)
+      recordComparison("partition stats", dataFilters, partitions, engine, planner)
+    } catch {
+      case NonFatal(e) => logWarning("Index planner COMPARE of partition stats failed; ignored", e)
+    }
+  }
+
+  /**
+   * COMPARE mode: the files [[lookupCandidateFilesWithIndexPlanner]] would have the query read against those it
+   * reads, over the same file slices. A file slice is read whole when any of its files is a candidate, so each side
+   * is compared by the files of the file slices it keeps. Never fails.
+   */
+  private def compareDataSkipping(dataFilters: Seq[Expression],
+                                  prunedPartitionsAndFileSlices: Seq[(Option[BaseHoodieTableFileIndex.PartitionPath], Seq[FileSlice])],
+                                  shouldPushDownFilesFilter: Boolean,
+                                  engine: Option[Set[String]]): Unit = {
+    try {
+      val planner = lookupCandidateFilesWithIndexPlanner(dataFilters, prunedPartitionsAndFileSlices, shouldPushDownFilesFilter).get
+      val fileSliceNames = prunedPartitionsAndFileSlices.flatMap(_._2).map(fileSlice => RecordLevelIndexSupport.getFileNames(fileSlice, this))
+      def filesRead(candidates: Option[Set[String]]): Option[Set[String]] =
+        candidates.map(names => fileSliceNames.filter(_.exists(names.contains)).flatten.toSet)
+      recordComparison("data skipping", dataFilters, fileSliceNames.flatten, filesRead(engine), filesRead(planner))
+    } catch {
+      case NonFatal(e) => logWarning("Index planner COMPARE of data skipping failed; ignored", e)
+    }
+  }
+
+  private def recordComparison(stage: String, dataFilters: Seq[Expression], all: Seq[String],
+                               engine: Option[Set[String]], planner: Option[Set[String]]): Unit = {
+    val description = s"$stage of table ${metaClient.getTableConfig.getTableName} with filters [${dataFilters.map(_.sql).mkString(" AND ")}]"
+    indexPlannerComparisons += ((stage, SparkIndexPlanner.compare(description, all, engine, planner)))
+  }
+
   override def refresh(): Unit = {
     super.refresh()
     indicesSupport.foreach(idx => idx.invalidateCaches())
@@ -483,6 +655,16 @@ case class HoodieFileIndex(spark: SparkSession,
 
   private def isDataSkippingEnabled: Boolean = getConfigValue(options, spark.sessionState.conf,
     DataSourceReadOptions.ENABLE_DATA_SKIPPING.key, DataSourceReadOptions.ENABLE_DATA_SKIPPING.defaultValue.toString).toBoolean
+
+  /**
+   * `hoodie.metadata.index.planner.mode`, from the read options or the SQL conf.
+   */
+  private def indexPlannerMode: IndexPlannerMode = {
+    val mode = getConfigValue(options, spark.sessionState.conf, HoodieMetadataConfig.INDEX_PLANNER_MODE.key,
+      HoodieMetadataConfig.INDEX_PLANNER_MODE.defaultValue)
+    Try(IndexPlannerMode.valueOf(mode.trim.toUpperCase(Locale.ROOT))).getOrElse(
+      throw new HoodieException(s"Invalid ${HoodieMetadataConfig.INDEX_PLANNER_MODE.key}: $mode (valid values: OFF, COMPARE, ON)"))
+  }
 
   private def isMetadataTableEnabled: Boolean = metadataConfig.isEnabled()
 
@@ -594,6 +776,16 @@ object HoodieFileIndex extends Logging {
       Some(child.name + "." + fieldName)
     case GetStructField(child: GetStructField, _, Some(fieldName)) =>
       resolveGetStructFieldPath(child).map(_ + "." + fieldName)
+    case _ => None
+  }
+
+  /**
+   * The index the planner of RFC-88 replaces an index support with: the record level index and column stats supports
+   * (not the secondary index support, which extends the record level one but has its own name).
+   */
+  private def indexPlannerIndexOf(indexSupport: SparkBaseIndexSupport): Option[MetadataPartitionType] = indexSupport.getIndexName match {
+    case RecordLevelIndexSupport.INDEX_NAME => Some(MetadataPartitionType.RECORD_INDEX)
+    case ColumnStatsIndexSupport.INDEX_NAME => Some(MetadataPartitionType.COLUMN_STATS)
     case _ => None
   }
 
