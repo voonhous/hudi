@@ -501,7 +501,7 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
       case INT:
       case INT8:
       case INT16:
-        // HiveTypeUtils reads INT8 and INT16 as Hive int, like INT
+        // HiveTypeUtils reads INT8 and INT16 as Hive tinyint and smallint, whose values are the same Integers
         return category == PrimitiveCategory.INT || category == PrimitiveCategory.SHORT || category == PrimitiveCategory.BYTE;
       case LONG:
         return category == PrimitiveCategory.LONG;
@@ -511,8 +511,9 @@ public final class HiveTranslator implements ExpressionTranslator<ExprNodeDesc> 
         return category == PrimitiveCategory.DOUBLE;
       case STRING:
       case CHAR:
-        // not a Hive CHAR: Hive compares chars without their padding. HiveTypeUtils reads a HoodieSchema CHAR as Hive
-        // string, whose values compare as stored.
+        // not a Hive CHAR: Hive compares chars without their padding. HiveTypeUtils reads a HoodieSchema CHAR(n) as Hive
+        // char(n), which is therefore not translated, or as string beyond Hive's char length, whose values compare as
+        // stored.
         return category == PrimitiveCategory.STRING || category == PrimitiveCategory.VARCHAR;
       case DECIMAL:
         return category == PrimitiveCategory.DECIMAL;

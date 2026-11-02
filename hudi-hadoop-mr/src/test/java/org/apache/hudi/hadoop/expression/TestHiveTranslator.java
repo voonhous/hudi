@@ -219,8 +219,9 @@ class TestHiveTranslator extends ExpressionTranslatorContractTest<ExprNodeDesc> 
   }
 
   /**
-   * INT8 and INT16 columns, which HiveTypeUtils reads as Hive int, translate as INT columns, and CHAR columns, read
-   * as Hive string, as STRING ones; their literals take the column's type.
+   * INT8 and INT16 columns, which HiveTypeUtils reads as Hive tinyint and smallint (or a Hive int column), translate as
+   * INT columns, and CHAR columns in a Hive string column as STRING ones; their literals take the column's type. A
+   * Hive char(n) column, as HiveTypeUtils reads CHAR(n), is not translated.
    */
   @Test
   void narrowIntsAndCharTranslateAsIntAndString() {

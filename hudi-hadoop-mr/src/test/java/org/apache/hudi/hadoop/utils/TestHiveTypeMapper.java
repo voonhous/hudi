@@ -76,10 +76,11 @@ class TestHiveTypeMapper extends TypeSystemMapperContractTest<TypeInfo> {
     gaps.put(SUPPORT_EXPECTED + "/VECTOR", String.format(unsupported, "VECTOR", "binary"));
     gaps.put(SUPPORT_EXPECTED + "/BLOB", String.format(unsupported, "BLOB", "a struct"));
     gaps.put(SUPPORT_EXPECTED + "/VARIANT", String.format(unsupported, "VARIANT", "a struct"));
-    String widened = "HiveTypeUtils maps %s to Hive %s, not %s, and Hive's TypeInfoToSchema reads %s back as %s";
-    gaps.put(SUPPORT_EXPECTED + "/INT8", String.format(widened, "INT8", "int", "tinyint", "tinyint", "a plain int"));
-    gaps.put(SUPPORT_EXPECTED + "/INT16", String.format(widened, "INT16", "int", "smallint", "smallint", "a plain int"));
-    gaps.put(SUPPORT_EXPECTED + "/CHAR", String.format(widened, "CHAR(n)", "string", "char(n)", "char(n)",
+    // RFC-88 step 2c: reading tinyint, smallint and char(n) back as INT8, INT16 and CHAR(n)
+    String readBack = "HiveTypeUtils maps %s to Hive %s, but Hive's TypeInfoToSchema reads %s back as %s";
+    gaps.put(SUPPORT_EXPECTED + "/INT8", String.format(readBack, "INT8", "tinyint", "tinyint", "a plain int"));
+    gaps.put(SUPPORT_EXPECTED + "/INT16", String.format(readBack, "INT16", "smallint", "smallint", "a plain int"));
+    gaps.put(SUPPORT_EXPECTED + "/CHAR", String.format(readBack, "CHAR(n)", "char(n)", "char(n)",
         "Hive's own {\"logicalType\":\"char\",\"maxLength\":n}, which is STRING"));
     // Hive types have no NOT NULL, and HoodieSchemaHints never restores nullability from the hint, so every case with
     // a required column, struct field, array element or map value reads back nullable. Types that fail fast are exempt.

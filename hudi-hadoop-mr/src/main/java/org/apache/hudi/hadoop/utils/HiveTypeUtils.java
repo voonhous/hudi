@@ -23,6 +23,7 @@ import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.util.ValidationUtils;
 
+import org.apache.hadoop.hive.common.type.HiveChar;
 import org.apache.hadoop.hive.serde2.avro.AvroSerDe;
 import org.apache.hadoop.hive.serde2.avro.AvroSerdeException;
 import org.apache.hadoop.hive.serde2.avro.InstanceCache;
@@ -76,8 +77,9 @@ public class HiveTypeUtils {
   // bytes            binary     check
   // fixed            binary     check
   // string           string     check
-  //                  tinyint
-  //                  smallint
+  // int8             tinyint
+  // int16            smallint
+  // char(n)          char(n)    (string beyond Hive's maximum char length)
 
   // Map of Avro's primitive types to Hives (for those that are supported by both)
   private static final Map<HoodieSchemaType, TypeInfo> PRIMITIVE_TYPE_TO_TYPE_INFO = initTypeMap();
@@ -92,11 +94,10 @@ public class HiveTypeUtils {
     theMap.put(BYTES, TypeInfoFactory.getPrimitiveTypeInfo("binary"));
     theMap.put(FIXED, TypeInfoFactory.getPrimitiveTypeInfo("binary"));
     theMap.put(STRING, TypeInfoFactory.getPrimitiveTypeInfo("string"));
-    // RFC-88 bug list: INT8, INT16 and CHAR(n) read as Hive int and string, as their values are handled today, not as
-    // tinyint, smallint and char(n), whose object inspectors expect other writables
-    theMap.put(INT8, TypeInfoFactory.getPrimitiveTypeInfo("int"));
-    theMap.put(INT16, TypeInfoFactory.getPrimitiveTypeInfo("int"));
-    theMap.put(CHAR, TypeInfoFactory.getPrimitiveTypeInfo("string"));
+    // Hive's Parquet reader hands tinyint and smallint columns over as IntWritables, as Hudi's readers do for INT8 and
+    // INT16, and the Parquet object inspectors read them (ParquetByteInspector, ParquetShortInspector)
+    theMap.put(INT8, TypeInfoFactory.getPrimitiveTypeInfo("tinyint"));
+    theMap.put(INT16, TypeInfoFactory.getPrimitiveTypeInfo("smallint"));
     return Collections.unmodifiableMap(theMap);
   }
 
@@ -192,6 +193,11 @@ public class HiveTypeUtils {
       return TypeInfoFactory.getVarcharTypeInfo(maxLength);
     }
 
+    if (type == CHAR) {
+      // Text values, as Hive's Parquet reader hands over, which the char object inspector pads
+      return charTypeInfo((HoodieSchema.Char) schema);
+    }
+
     if (type == DATE) {
       return TypeInfoFactory.dateTypeInfo;
     }
@@ -222,6 +228,13 @@ public class HiveTypeUtils {
     }
 
     return typeInfoCache.retrieve(schema, seenSchemas);
+  }
+
+  /**
+   * Hive char(n) for CHAR(n), or string when n is longer than Hive's char allows ({@value HiveChar#MAX_CHAR_LENGTH}).
+   */
+  public static TypeInfo charTypeInfo(HoodieSchema.Char schema) {
+    return schema.getLength() <= HiveChar.MAX_CHAR_LENGTH ? TypeInfoFactory.getCharTypeInfo(schema.getLength()) : TypeInfoFactory.stringTypeInfo;
   }
 
   private static boolean isEmpty(final CharSequence cs) {

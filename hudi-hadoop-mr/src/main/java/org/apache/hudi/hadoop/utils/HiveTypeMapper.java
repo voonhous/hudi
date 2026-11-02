@@ -104,12 +104,15 @@ public final class HiveTypeMapper implements TypeSystemMapper<TypeInfo> {
       case TIMESTAMP:
         return TypeSupport.lossy("TIMESTAMP(MICROS) and LOCAL_TIMESTAMP(MICROS) stored as Hive bigint; LOCAL_TIMESTAMP(MILLIS) stored as Hive "
             + "timestamp, read back as TIMESTAMP(MILLIS); only TIMESTAMP(MILLIS) is exact");
+      // Stored natively; Hive's TypeInfoToSchema still reads the types back as INT and STRING (RFC-88 step 2c), so the
+      // hint restores them
       case INT8:
-        return TypeSupport.lossy("INT8 stored as Hive int, not tinyint (HiveTypeUtils maps it as INT)");
+        return TypeSupport.lossy("INT8 stored as Hive tinyint; Hive's TypeInfoToSchema reads tinyint back as INT");
       case INT16:
-        return TypeSupport.lossy("INT16 stored as Hive int, not smallint (HiveTypeUtils maps it as INT)");
+        return TypeSupport.lossy("INT16 stored as Hive smallint; Hive's TypeInfoToSchema reads smallint back as INT");
       case CHAR:
-        return TypeSupport.lossy("CHAR(n) stored as Hive string, not char(n) (HiveTypeUtils maps it as STRING)");
+        return TypeSupport.lossy("CHAR(n) stored as Hive char(n), or string beyond Hive's 255 characters; Hive's TypeInfoToSchema reads "
+            + "char(n) back as its own {\"logicalType\":\"char\",\"maxLength\":n}, which is STRING");
       case UUID:
       case VARIANT:
       case BLOB:

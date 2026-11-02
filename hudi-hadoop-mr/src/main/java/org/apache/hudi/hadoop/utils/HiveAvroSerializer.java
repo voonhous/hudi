@@ -384,7 +384,14 @@ public class HiveAvroSerializer {
         }
       case CHAR:
         HiveChar ch = (HiveChar) fieldOI.getPrimitiveJavaObject(structFieldData);
-        return new Utf8(ch.getStrippedValue());
+        // A CHAR(n) value keeps its padding; a STRING (e.g. Hive's own Avro char) is stripped, as before
+        return new Utf8(schema.getType() == HoodieSchemaType.CHAR ? ch.getPaddedValue() : ch.getStrippedValue());
+      case BYTE:
+      case SHORT:
+        // tinyint / smallint values of INT8 / INT16 columns are Avro ints; other schemas keep today's Byte / Short
+        Object narrow = fieldOI.getPrimitiveJavaObject(structFieldData);
+        boolean avroInt = schema.getType() == HoodieSchemaType.INT8 || schema.getType() == HoodieSchemaType.INT16;
+        return avroInt && narrow != null ? ((Number) narrow).intValue() : narrow;
       case VARCHAR:
         HiveVarchar vc = (HiveVarchar) fieldOI.getPrimitiveJavaObject(structFieldData);
         return new Utf8(vc.getValue());

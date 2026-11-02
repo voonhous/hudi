@@ -20,6 +20,7 @@ package org.apache.hudi.hadoop.utils;
 
 import org.apache.hudi.common.avro.HoodieAvroUtils;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.exception.HoodieException;
 
 import org.apache.avro.generic.GenericArray;
@@ -606,5 +607,32 @@ public class TestHiveAvroSerializer {
     assertEquals(TypeInfoFactory.intTypeInfo, columnTypes.get(0));
     // The second column should be bigint type
     assertEquals(TypeInfoFactory.longTypeInfo, columnTypes.get(1));
+  }
+
+  /**
+   * INT8, INT16 and CHAR(n) are Hive tinyint, smallint and char(n). Their values arrive as IntWritable and Text, as
+   * Hive's Parquet reader and Hudi's log record conversion hand them over, and serialize to Avro ints and to the
+   * CHAR(n) value padded to n. A CHAR(n) longer than Hive's char maximum is a Hive string.
+   */
+  @Test
+  public void testSerializeInt8Int16AndChar() throws AvroSerdeException {
+    HoodieSchema schema = HoodieSchema.createRecord("narrow", null, null, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(5)),
+        HoodieSchemaField.of("long_code", HoodieSchema.createNullable(HoodieSchema.createChar(300)))));
+    assertEquals(Arrays.asList(TypeInfoFactory.byteTypeInfo, TypeInfoFactory.shortTypeInfo, TypeInfoFactory.getCharTypeInfo(5),
+        TypeInfoFactory.stringTypeInfo), HiveTypeUtils.generateColumnTypes(schema));
+
+    ArrayWritable writable = new ArrayWritable(Writable.class, new Writable[] {
+        new IntWritable(-128), new IntWritable(32767), new Text("ab"), new Text("x ")});
+    HiveAvroSerializer serializer = new HiveAvroSerializer(schema);
+    GenericRecord record = serializer.serialize(writable, schema);
+    assertEquals(-128, record.get("tiny"));
+    assertEquals(32767, record.get("small"));
+    assertEquals(new Utf8("ab   "), record.get("code"));
+    assertEquals(new Utf8("x "), record.get("long_code"));
+    assertEquals(-128, serializer.getValueAsJava(writable, "tiny"));
+    assertEquals(new Utf8("ab   "), serializer.getValueAsJava(writable, "code"));
   }
 }
