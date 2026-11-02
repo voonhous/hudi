@@ -171,10 +171,10 @@ public class TestHiveSchemaUtil {
     Map<String, String> actual = HiveSchemaUtil.convertSchemaToHiveSchema(schema, true);
     Map<String, String> expected = new HashMap<>();
     expected.put("`int_field`", "int");
-    // synced as today until the Hive sync maps them to tinyint, smallint and char(n) (RFC-88 rollout step 2)
-    expected.put("`int8_field`", "int");
-    expected.put("`int16_field`", "int");
-    expected.put("`char_field`", "string");
+    // RFC-88 step 2b: Hive's own types; no table synced before has these HoodieSchema types
+    expected.put("`int8_field`", "tinyint");
+    expected.put("`int16_field`", "smallint");
+    expected.put("`char_field`", "char(10)");
     expected.put("`long_field`", "bigint");
     expected.put("`float_field`", "float");
     expected.put("`double_field`", "double");

@@ -55,6 +55,12 @@ public class HiveSchemaUtil {
 
   public static final String BOOLEAN_TYPE_NAME = "boolean";
   public static final String INT_TYPE_NAME = "int";
+  public static final String TINYINT_TYPE_NAME = "tinyint";
+  public static final String SMALLINT_TYPE_NAME = "smallint";
+  /**
+   * The longest Hive char, {@code HiveChar.MAX_CHAR_LENGTH}.
+   */
+  public static final int MAX_CHAR_LENGTH = 255;
   public static final String BIGINT_TYPE_NAME = "bigint";
   public static final String FLOAT_TYPE_NAME = "float";
   public static final String DOUBLE_TYPE_NAME = "double";
@@ -219,9 +225,10 @@ public class HiveSchemaUtil {
       case INT:
         return INT_TYPE_NAME;
       case INT8:
+        // no table has INT8 / INT16 / CHAR columns before RFC-88 step 2, so no synced column changes type
+        return TINYINT_TYPE_NAME;
       case INT16:
-        // RFC-88 bug list: synced as int, as the column is synced today, not as tinyint / smallint
-        return INT_TYPE_NAME;
+        return SMALLINT_TYPE_NAME;
       case LONG:
         return BIGINT_TYPE_NAME;
       case FLOAT:
@@ -234,8 +241,9 @@ public class HiveSchemaUtil {
       case ENUM:
         return STRING_TYPE_NAME;
       case CHAR:
-        // RFC-88 bug list: synced as string, as the column is synced today, not as char(n)
-        return STRING_TYPE_NAME;
+        // Hive's char holds at most 255 characters; a longer CHAR(n) is synced as string
+        int charLength = ((HoodieSchema.Char) nonNullType).getLength();
+        return charLength <= MAX_CHAR_LENGTH ? "char(" + charLength + ")" : STRING_TYPE_NAME;
       case BYTES:
       case UUID:
       case FIXED:

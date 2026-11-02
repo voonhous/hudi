@@ -110,7 +110,8 @@ public class FilterGenVisitor implements ExpressionVisitor<String> {
     }
 
     HoodieSchemaType type = literalExpr.getDataType().getType();
-    // CHAR and INT8 / INT16 partition columns are synced as string and int, so their literals render as those
+    // INT8 / INT16 partition columns are synced as tinyint / smallint, integral like int, and CHAR ones as char(n), whose
+    // literals are quoted like string ones
     if (type.isStringLike()) {
       return quoteStringLiteral(((Literal<String>)literalExpr).getValue());
     }

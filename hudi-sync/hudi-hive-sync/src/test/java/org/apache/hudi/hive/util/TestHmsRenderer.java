@@ -116,9 +116,9 @@ class TestHmsRenderer {
   }
 
   /**
-   * INT8 and INT16 partition columns are synced as int, so their literals render as INT ones and INT literals are
-   * placed on them. CHAR is not rendered: the metastore compares the stored strings, engines compare CHAR ignoring
-   * trailing spaces.
+   * INT8 and INT16 partition columns are synced as tinyint and smallint, integral like int, so their literals render as
+   * INT ones and INT literals are placed on them. CHAR is not rendered: the metastore compares the stored strings,
+   * engines compare CHAR ignoring trailing spaces.
    */
   @Test
   void narrowIntsRenderAsIntAndCharDoesNot() {

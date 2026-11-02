@@ -149,26 +149,86 @@ class TestHiveCatalogRenderer {
   }
 
   /**
-   * INT8 and INT16 render as int and CHAR(n) as string, the columns Hive sync writes for them today, so a table synced
-   * before is in sync.
+   * INT8 and INT16 render as Hive tinyint and smallint and CHAR(n) as char(n), also nested and as partition columns; a
+   * CHAR longer than Hive's 255 characters renders as string. The metastore's upper case types are in sync.
    */
   @Test
-  void narrowIntsAndCharRenderAsTodaysColumns() {
+  void narrowIntsAndCharRenderNatively() {
+    HoodieSchema nested = HoodieSchema.createRecord("nested", "test", null, Arrays.asList(
+        HoodieSchemaField.of("x", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchema.createChar(2)))));
     HoodieSchema schema = HoodieSchema.createRecord("trips", "test", null, Arrays.asList(
         HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
         HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
         HoodieSchemaField.of("code", HoodieSchema.createChar(3)),
-        HoodieSchemaField.of("dt", HoodieSchema.create(HoodieSchemaType.STRING))));
-    List<String> partitionFields = Collections.singletonList("dt");
+        HoodieSchemaField.of("long_code", HoodieSchema.createChar(256)),
+        HoodieSchemaField.of("codes", HoodieSchema.createArray(HoodieSchema.createChar(4))),
+        HoodieSchemaField.of("nested", nested),
+        HoodieSchemaField.of("hr", HoodieSchema.createInt16())));
+    List<String> partitionFields = Collections.singletonList("hr");
     List<FieldSchema> rendered = RENDERER.render(schema, partitionFields, SyncOptions.DEFAULT);
     Map<String, String> types = new LinkedHashMap<>();
     rendered.forEach(c -> types.put(c.getName(), c.getType()));
-    assertEquals("int", types.get("tiny"));
-    assertEquals("int", types.get("small"));
-    assertEquals("string", types.get("code"));
-    List<FieldSchema> metastore = Arrays.asList(new FieldSchema("tiny", "INT", ""), new FieldSchema("small", "INT", ""),
-        new FieldSchema("code", "STRING", ""), new FieldSchema("dt", "STRING", ""));
+    Map<String, String> expected = new LinkedHashMap<>();
+    expected.put("tiny", "tinyint");
+    expected.put("small", "smallint");
+    expected.put("code", "char(3)");
+    expected.put("long_code", "string");
+    expected.put("codes", "array<char(4)>");
+    expected.put("nested", "struct<x:tinyint,c:char(2)>");
+    expected.put("hr", "smallint");
+    assertEquals(expected, types);
+    List<FieldSchema> metastore = rendered.stream()
+        .map(c -> new FieldSchema(c.getName(), c.getType().toUpperCase(Locale.ROOT), "")).collect(Collectors.toList());
     assertTrue(RENDERER.diff(schema, metastore, partitionFields, SyncOptions.DEFAULT).isEmpty());
+  }
+
+  /**
+   * A table with only the types that exist before RFC-88 step 2 renders exactly the columns Hive sync wrote for it
+   * before INT8, INT16 and CHAR were mapped (spelled out here, not derived from HiveSchemaUtil), so no synced table
+   * sees a schema difference.
+   */
+  @ParameterizedTest
+  @CsvSource({"false", "true"})
+  void todaysTypesRenderAsBefore(boolean supportTimestamp) {
+    HoodieSchema nested = HoodieSchema.createRecord("nested", "test", null, Arrays.asList(
+        HoodieSchemaField.of("a", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchemaType.STRING))));
+    HoodieSchema schema = HoodieSchema.createRecord("trips", "test", null, Arrays.asList(
+        HoodieSchemaField.of("b", HoodieSchema.create(HoodieSchemaType.BOOLEAN)),
+        HoodieSchemaField.of("i", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("l", HoodieSchema.createNullable(HoodieSchemaType.LONG)),
+        HoodieSchemaField.of("f", HoodieSchema.create(HoodieSchemaType.FLOAT)),
+        HoodieSchemaField.of("d", HoodieSchema.create(HoodieSchemaType.DOUBLE)),
+        HoodieSchemaField.of("s", HoodieSchema.create(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("hive_char", HoodieSchema.parse("{\"type\":\"string\",\"logicalType\":\"char\",\"maxLength\":5}")),
+        HoodieSchemaField.of("bin", HoodieSchema.create(HoodieSchemaType.BYTES)),
+        HoodieSchemaField.of("fix", HoodieSchema.createFixed("fix", "test", null, 4)),
+        HoodieSchemaField.of("e", HoodieSchema.createEnum("e", "test", null, Arrays.asList("A", "B"))),
+        HoodieSchemaField.of("day", HoodieSchema.createDate()),
+        HoodieSchemaField.of("t_ms", HoodieSchema.createTimeMillis()),
+        HoodieSchemaField.of("t_us", HoodieSchema.createTimeMicros()),
+        HoodieSchemaField.of("ts", HoodieSchema.createTimestampMillis()),
+        HoodieSchemaField.of("ts_us", HoodieSchema.createTimestampMicros()),
+        HoodieSchemaField.of("lts", HoodieSchema.createLocalTimestampMillis()),
+        HoodieSchemaField.of("price", HoodieSchema.createDecimal(10, 2)),
+        HoodieSchemaField.of("uid", HoodieSchema.createUUID()),
+        HoodieSchemaField.of("emb", HoodieSchema.createVector(4, HoodieSchema.Vector.VectorElementType.FLOAT)),
+        HoodieSchemaField.of("tags", HoodieSchema.createArray(HoodieSchema.create(HoodieSchemaType.INT))),
+        HoodieSchemaField.of("attrs", HoodieSchema.createMap(HoodieSchema.create(HoodieSchemaType.STRING))),
+        HoodieSchemaField.of("nested", nested),
+        HoodieSchemaField.of("dt", HoodieSchema.create(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("hr", HoodieSchema.create(HoodieSchemaType.INT))));
+    List<String> partitionFields = Arrays.asList("dt", "hr");
+    SyncOptions opts = SyncOptions.builder().set(HiveCatalogRenderer.SUPPORT_TIMESTAMP, supportTimestamp).build();
+    String timestamp = supportTimestamp ? "timestamp" : "bigint";
+    List<String> expected = Arrays.asList("b:boolean", "i:int", "l:bigint", "f:float", "d:double", "s:string", "hive_char:string",
+        "bin:binary", "fix:binary", "e:string", "day:date", "t_ms:int", "t_us:bigint", "ts:" + timestamp, "ts_us:" + timestamp,
+        "lts:" + timestamp, "price:decimal(10,2)", "uid:binary", "emb:binary", "tags:array<int>", "attrs:map<string,string>",
+        "nested:struct<a:int,c:string>", "dt:string", "hr:int");
+    List<FieldSchema> rendered = RENDERER.render(schema, partitionFields, opts);
+    assertEquals(expected, rendered.stream().map(c -> c.getName() + ":" + c.getType()).collect(Collectors.toList()));
+    assertTrue(RENDERER.diff(schema, rendered, partitionFields, opts).isEmpty());
   }
 
   @Test

@@ -22,6 +22,8 @@ import org.apache.hudi.HoodieVersion;
 import org.apache.hudi.aws.testutils.GlueTestUtil;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.config.GlueCatalogSyncClientConfig;
 import org.apache.hudi.config.HoodieAWSConfig;
@@ -103,6 +105,7 @@ import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -227,6 +230,41 @@ class TestAWSGlueSyncClient {
     awsGlueSyncClient.createOrReplaceTable(tableName, storageSchema, inputFormatClass, outputFormatClass, serdeClass, serdeProperties, tableProperties);
     // Verify that awsGlue.createTable() is called
     verify(mockAwsGlue, times(1)).createTable(any(CreateTableRequest.class));
+  }
+
+  /**
+   * Glue columns come from HiveSchemaUtil, as Hive sync's: INT8, INT16 and CHAR(n) are tinyint, smallint and char(n),
+   * and the columns of today's types are what Glue sync wrote before.
+   */
+  @Test
+  void testCreateTableColumnsForInt8Int16AndChar() {
+    HoodieSchema storageSchema = HoodieSchema.createRecord("example_schema", null, null, Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("name", HoodieSchema.createNullable(HoodieSchemaType.STRING)),
+        HoodieSchemaField.of("ts", HoodieSchema.createTimestampMillis()),
+        HoodieSchemaField.of("price", HoodieSchema.createDecimal(10, 2)),
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(10)),
+        HoodieSchemaField.of("datestr", HoodieSchema.create(HoodieSchemaType.STRING))));
+    Mockito.when(mockAwsGlue.getTable(any(GetTableRequest.class))).thenReturn(CompletableFuture.completedFuture(GetTableResponse.builder().build()));
+    Mockito.when(mockAwsGlue.createTable(any(CreateTableRequest.class))).thenReturn(CompletableFuture.completedFuture(CreateTableResponse.builder().build()));
+
+    awsGlueSyncClient.createOrReplaceTable("testTable", storageSchema, "inputFormat", "outputFormat", "serde", new HashMap<>(), new HashMap<>());
+
+    ArgumentCaptor<CreateTableRequest> request = ArgumentCaptor.forClass(CreateTableRequest.class);
+    verify(mockAwsGlue).createTable(request.capture());
+    Map<String, String> columns = request.getValue().tableInput().storageDescriptor().columns().stream()
+        .collect(Collectors.toMap(Column::name, Column::type, (a, b) -> a, LinkedHashMap::new));
+    Map<String, String> expected = new LinkedHashMap<>();
+    expected.put("id", "int");
+    expected.put("name", "string");
+    expected.put("ts", "bigint");
+    expected.put("price", "decimal(10,2)");
+    expected.put("tiny", "tinyint");
+    expected.put("small", "smallint");
+    expected.put("code", "char(10)");
+    assertEquals(expected, columns);
   }
 
   @Test

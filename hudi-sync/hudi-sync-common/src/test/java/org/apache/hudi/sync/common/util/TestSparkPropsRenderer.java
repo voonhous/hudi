@@ -106,18 +106,73 @@ class TestSparkPropsRenderer {
   }
 
   /**
-   * INT8 and INT16 are written as Spark integer and CHAR(n) as string, as the columns are synced today.
+   * INT8 and INT16 are written as Spark byte and short. CHAR(n) is written as Spark 3.5 keeps it in
+   * {@code spark.sql.sources.schema} (CharVarcharUtils.replaceCharVarcharWithStringInSchema): a string column whose
+   * metadata holds the top-level column's type with char(n), nested CHARs included; nested fields get no metadata.
    */
   @Test
-  void narrowIntsAndCharRenderAsIntegerAndString() {
+  void narrowIntsAndCharRenderAsSparkTypes() {
+    HoodieSchema nested = HoodieSchema.createRecord("nested", "test", null, Arrays.asList(
+        HoodieSchemaField.of("x", HoodieSchema.createInt16()),
+        HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchema.createChar(2)))));
     HoodieSchema schema = HoodieSchema.createRecord("trips", "test", null, Arrays.asList(
         HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
         HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
-        HoodieSchemaField.of("code", HoodieSchema.createChar(3))));
-    String json = SparkSchemaUtils.convertToSparkSchemaJson(schema, false);
-    assertTrue(json.contains("{\"name\":\"tiny\",\"type\":\"integer\",\"nullable\":false,\"metadata\":{}}"), json);
-    assertTrue(json.contains("{\"name\":\"small\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}"), json);
-    assertTrue(json.contains("{\"name\":\"code\",\"type\":\"string\",\"nullable\":false,\"metadata\":{}}"), json);
+        HoodieSchemaField.of("code", HoodieSchema.createChar(3), "the code", null),
+        HoodieSchemaField.of("codes", HoodieSchema.createArray(HoodieSchema.createChar(4))),
+        HoodieSchemaField.of("nested", nested)));
+    String json = SparkSchemaUtils.convertToSparkSchemaJson(schema, true);
+    assertEquals("{\"type\":\"struct\",\"fields\":["
+        + "{\"name\":\"tiny\",\"type\":\"byte\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"small\",\"type\":\"short\",\"nullable\":true,\"metadata\":{}},"
+        + "{\"name\":\"code\",\"type\":\"string\",\"nullable\":false,\"metadata\":{\"comment\":\"the code\",\"__CHAR_VARCHAR_TYPE_STRING\":\"char(3)\"}},"
+        + "{\"name\":\"codes\",\"type\":{\"type\":\"array\", \"elementType\":\"string\",\"containsNull\":false},\"nullable\":false,"
+        + "\"metadata\":{\"__CHAR_VARCHAR_TYPE_STRING\":\"array<char(4)>\"}},"
+        + "{\"name\":\"nested\",\"type\":{\"type\":\"struct\",\"fields\":["
+        + "{\"name\":\"x\",\"type\":\"short\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"c\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]},\"nullable\":false,"
+        + "\"metadata\":{\"__CHAR_VARCHAR_TYPE_STRING\":\"struct<x:smallint,c:char(2)>\"}}]}", json);
+  }
+
+  /**
+   * A table with only the types that exist before RFC-88 step 2 gets exactly the Spark schema it got before INT8, INT16
+   * and CHAR were mapped (spelled out here), so no synced table sees a schema difference.
+   */
+  @Test
+  void todaysTypesRenderAsBefore() {
+    HoodieSchema nested = HoodieSchema.createRecord("nested", "test", null, Arrays.asList(
+        HoodieSchemaField.of("a", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("c", HoodieSchema.createNullable(HoodieSchemaType.STRING))));
+    HoodieSchema schema = HoodieSchema.createRecord("trips", "test", null, Arrays.asList(
+        HoodieSchemaField.of("b", HoodieSchema.create(HoodieSchemaType.BOOLEAN)),
+        HoodieSchemaField.of("i", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("l", HoodieSchema.createNullable(HoodieSchemaType.LONG)),
+        HoodieSchemaField.of("s", HoodieSchema.create(HoodieSchemaType.STRING), "a doc", null),
+        HoodieSchemaField.of("hive_char", HoodieSchema.parse("{\"type\":\"string\",\"logicalType\":\"char\",\"maxLength\":5}")),
+        HoodieSchemaField.of("bin", HoodieSchema.create(HoodieSchemaType.BYTES)),
+        HoodieSchemaField.of("day", HoodieSchema.createDate()),
+        HoodieSchemaField.of("ts", HoodieSchema.createTimestampMicros()),
+        HoodieSchemaField.of("price", HoodieSchema.createDecimal(10, 2)),
+        HoodieSchemaField.of("tags", HoodieSchema.createArray(HoodieSchema.create(HoodieSchemaType.INT))),
+        HoodieSchemaField.of("attrs", HoodieSchema.createMap(HoodieSchema.create(HoodieSchemaType.LONG))),
+        HoodieSchemaField.of("nested", nested)));
+    assertEquals("{\"type\":\"struct\",\"fields\":["
+        + "{\"name\":\"b\",\"type\":\"boolean\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"i\",\"type\":\"integer\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"l\",\"type\":\"long\",\"nullable\":true,\"metadata\":{}},"
+        + "{\"name\":\"s\",\"type\":\"string\",\"nullable\":false,\"metadata\":{\"comment\":\"a doc\"}},"
+        + "{\"name\":\"hive_char\",\"type\":\"string\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"bin\",\"type\":\"binary\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"day\",\"type\":\"date\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"price\",\"type\":\"decimal(10,2)\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"tags\",\"type\":{\"type\":\"array\", \"elementType\":\"integer\",\"containsNull\":false},\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"attrs\",\"type\":{\"type\":\"map\", \"keyType\":\"string\",\"valueType\":\"long\",\"valueContainsNull\":false},"
+        + "\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"nested\",\"type\":{\"type\":\"struct\",\"fields\":["
+        + "{\"name\":\"a\",\"type\":\"integer\",\"nullable\":false,\"metadata\":{}},"
+        + "{\"name\":\"c\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]},\"nullable\":false,\"metadata\":{}}]}",
+        SparkSchemaUtils.convertToSparkSchemaJson(schema, true));
   }
 
   @Test
