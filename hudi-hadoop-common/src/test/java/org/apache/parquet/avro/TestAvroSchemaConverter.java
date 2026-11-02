@@ -1035,6 +1035,42 @@ public class TestAvroSchemaConverter {
         () -> getAvroSchemaConverter(conf).convert(schema));
   }
 
+  /**
+   * RFC-99: INT8 and INT16 are INT32 + INTEGER(8 / 16, signed); Parquet has no CHAR, so CHAR(n) is BINARY + STRING.
+   * The reverse direction reads them as INT and STRING (RFC-88 step 2c switches INTEGER(8 / 16)).
+   */
+  @Test
+  public void testInt8Int16AndChar() throws Exception {
+    HoodieSchema schema = HoodieSchema.createRecord("myrecord", null, null, false, Arrays.asList(
+        HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
+        HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
+        HoodieSchemaField.of("code", HoodieSchema.createChar(10))));
+    testAvroToParquetConversion(schema, "message myrecord {\n"
+        + "  required int32 tiny (INTEGER(8,true));\n"
+        + "  optional int32 small (INTEGER(16,true));\n"
+        + "  required binary code (STRING);\n"
+        + "}\n");
+
+    HoodieSchema back = getAvroSchemaConverter(new Configuration(false)).convert(getAvroSchemaConverter(new Configuration(false)).convert(schema));
+    assertEquals(HoodieSchemaType.INT, back.getField("tiny").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT, back.getField("small").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.STRING, back.getField("code").get().schema().getType());
+  }
+
+  /**
+   * The INT(8) / INT(16) columns the Spark row writer writes for ByteType / ShortType today read back as INT.
+   */
+  @Test
+  public void testSparkWrittenNarrowIntsReadAsInt() {
+    MessageType sparkWritten = MessageTypeParser.parseMessageType("message spark_schema {\n"
+        + "  optional int32 b (INTEGER(8,true));\n"
+        + "  optional int32 s (INTEGER(16,true));\n"
+        + "}\n");
+    HoodieSchema schema = getAvroSchemaConverter(new Configuration(false)).convert(sparkWritten);
+    assertEquals(HoodieSchemaType.INT, schema.getField("b").get().schema().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.INT, schema.getField("s").get().schema().getNonNullType().getType());
+  }
+
   public static MessageType message(PrimitiveType primitive) {
     return Types.buildMessage().addField(primitive).named("myrecord");
   }

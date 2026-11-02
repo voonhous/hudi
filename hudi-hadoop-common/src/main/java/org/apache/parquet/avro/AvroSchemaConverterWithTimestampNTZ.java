@@ -57,6 +57,7 @@ import static org.apache.parquet.schema.LogicalTypeAnnotation.TimeUnit.MILLIS;
 import static org.apache.parquet.schema.LogicalTypeAnnotation.dateType;
 import static org.apache.parquet.schema.LogicalTypeAnnotation.decimalType;
 import static org.apache.parquet.schema.LogicalTypeAnnotation.enumType;
+import static org.apache.parquet.schema.LogicalTypeAnnotation.intType;
 import static org.apache.parquet.schema.LogicalTypeAnnotation.stringType;
 import static org.apache.parquet.schema.LogicalTypeAnnotation.timeType;
 import static org.apache.parquet.schema.LogicalTypeAnnotation.timestampType;
@@ -169,10 +170,15 @@ public class AvroSchemaConverterWithTimestampNTZ extends HoodieAvroParquetSchema
         builder = Types.primitive(INT32, repetition);
         break;
       case INT8:
+        // RFC-99: TINYINT is INT32 + INTEGER(8, signed). The values are Integers like INT's, so the Avro writer and
+        // reader handle them unchanged. The reverse direction reads INTEGER(8) as INT (RFC-88 step 2c switches it);
+        // the table schema restores INT8.
+        builder = Types.primitive(INT32, repetition).as(intType(8, true));
+        break;
       case INT16:
-        // RFC-88 bug list: written as a plain INT32, like INT, not with the INT(8) / INT(16) annotation, so the
-        // column reads back as INT without the table schema.
-        builder = Types.primitive(INT32, repetition);
+        // RFC-99: SMALLINT is INT32 + INTEGER(16, signed), as the Spark row writer writes ShortType today. The reverse
+        // direction reads INTEGER(16) as INT, as it does for those Spark-written files (RFC-88 step 2c switches it).
+        builder = Types.primitive(INT32, repetition).as(intType(16, true));
         break;
       case LONG:
         builder = Types.primitive(INT64, repetition);

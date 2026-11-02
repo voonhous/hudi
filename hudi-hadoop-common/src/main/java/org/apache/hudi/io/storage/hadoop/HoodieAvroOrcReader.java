@@ -24,9 +24,13 @@ import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.schema.HoodieSchemaUtils;
+import org.apache.hudi.common.schema.mapping.HoodieSchemaEquivalence;
+import org.apache.hudi.common.schema.mapping.HoodieSchemaHints;
 import org.apache.hudi.common.util.AvroOrcUtils;
 import org.apache.hudi.common.util.FileFormatUtils;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableMappingIterator;
 import org.apache.hudi.common.util.collection.Pair;
@@ -89,7 +93,7 @@ public class HoodieAvroOrcReader extends HoodieAvroFileReader {
     Configuration hadoopConf = storage.getConf().unwrapCopyAs(Configuration.class);
     try (Reader reader = OrcFile.createReader(new Path(path.toUri()), OrcFile.readerOptions(hadoopConf))) {
       // Limit the ORC schema to requested fields only
-      HoodieSchema fileSchema = AvroOrcUtils.createSchema(reader.getSchema());
+      HoodieSchema fileSchema = restoreNarrowTypes(AvroOrcUtils.createSchema(reader.getSchema()), requestedSchema);
       Set<String> existingFields = fileSchema.getFields().stream()
           .map(HoodieSchemaField::name)
           .collect(Collectors.toSet());
@@ -107,6 +111,18 @@ public class HoodieAvroOrcReader extends HoodieAvroFileReader {
     } catch (IOException io) {
       throw new HoodieIOException("Unable to create an ORC reader.", io);
     }
+  }
+
+  /**
+   * Takes INT8, INT16 and CHAR(n) from the requested schema where the file column reads as their image (tinyint,
+   * smallint and char(n) read as INT and STRING), so that the column is read as the type it is stored as: ORC
+   * cannot read a char(n) column as string. No other type is taken, so files of tables without these types read as
+   * before.
+   */
+  private static HoodieSchema restoreNarrowTypes(HoodieSchema fileSchema, HoodieSchema requestedSchema) {
+    return HoodieSchemaHints.restore(fileSchema, Option.of(requestedSchema),
+        t -> t == HoodieSchemaType.INT8 || t == HoodieSchemaType.INT16 || t == HoodieSchemaType.CHAR,
+        n -> AvroOrcUtils.createSchema(AvroOrcUtils.createOrcSchema(n)), HoodieSchemaEquivalence.Mode.PHYSICAL);
   }
 
   @Override

@@ -66,10 +66,11 @@ class TestOrcSchemaMapper extends FormatSchemaMapperContractTest<TypeDescription
       gaps.put(SUPPORT_EXPECTED + "/" + type, "AvroOrcUtils.createOrcSchema has no case for " + type + " and throws IllegalStateException; "
           + "ORC could keep the values (as string, struct or binary) and the hint restore the type");
     }
-    gaps.put(SUPPORT_EXPECTED + "/INT8", "AvroOrcUtils.createOrcSchema writes INT8 as ORC int, not tinyint, and createSchema reads tinyint back as INT");
-    gaps.put(SUPPORT_EXPECTED + "/INT16", "AvroOrcUtils.createOrcSchema writes INT16 as ORC int, not smallint, and createSchema reads smallint back as INT");
-    gaps.put(SUPPORT_EXPECTED + "/CHAR", "AvroOrcUtils.createOrcSchema writes CHAR(n) as ORC string, not char(n), and createSchema reads char(n) back "
-        + "as STRING");
+    // RFC-88 step 2c: createSchema reads tinyint, smallint and char(n) as INT8, INT16 and CHAR(n) only once reading ORC
+    // files with those types (not written by Hudi today) as the narrower types has its compatibility work
+    gaps.put(SUPPORT_EXPECTED + "/INT8", "AvroOrcUtils.createOrcSchema writes INT8 as ORC tinyint, but createSchema reads tinyint back as INT");
+    gaps.put(SUPPORT_EXPECTED + "/INT16", "AvroOrcUtils.createOrcSchema writes INT16 as ORC smallint, but createSchema reads smallint back as INT");
+    gaps.put(SUPPORT_EXPECTED + "/CHAR", "AvroOrcUtils.createOrcSchema writes CHAR(n) as ORC char(n), but createSchema reads char(n) back as STRING");
     // Every column reads back required; nullability is not a HoodieSchemaType, so HoodieSchemaHints does not restore it.
     for (SchemaSample sample : SchemaSamples.all()) {
       if (sample.nesting() != SchemaSample.Nesting.NONE && !support(sample.type()).isUnsupported() && !sample.id().equals("struct")) {

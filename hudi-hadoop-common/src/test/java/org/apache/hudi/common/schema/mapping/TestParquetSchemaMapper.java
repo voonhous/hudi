@@ -29,7 +29,6 @@ import org.apache.parquet.schema.Type;
 import org.apache.parquet.schema.Types;
 
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 
 import static org.apache.parquet.schema.LogicalTypeAnnotation.TimeUnit.MICROS;
@@ -128,10 +127,10 @@ class TestParquetSchemaMapper extends FormatSchemaMapperContractTest<MessageType
         + "VARIANT case, and parquet-java below 1.16 writes no VARIANT annotation to read, so only the hint restores VARIANT");
     for (String type : new String[] {"INT8", "INT16"}) {
       String bits = type.substring(3);
-      gaps.put(SUPPORT_EXPECTED + "/" + type, "AvroSchemaConverterWithTimestampNTZ writes " + type + " as a plain INT32, without INTEGER(" + bits
-          + ", signed), and reads INTEGER(" + bits + ") back as INT (the Spark row writer writes INT(16) for ShortType today)");
-      gaps.put(EXPECTED_OUTPUT + "/" + type.toLowerCase(Locale.ROOT), "AvroSchemaConverterWithTimestampNTZ writes " + type
-          + " as a plain INT32; RFC-99 asks for INT32 + INTEGER(" + bits + ", signed=true)");
+      // RFC-88 step 2c: reading INTEGER(8 / 16) as INT8 / INT16 without a hint changes the read of the INT(16) columns
+      // Spark writes for ShortType today, so it waits for the compatibility work
+      gaps.put(SUPPORT_EXPECTED + "/" + type, "AvroSchemaConverterWithTimestampNTZ writes " + type + " as INT32 + INTEGER(" + bits
+          + ", signed) but reads INTEGER(" + bits + ") back as INT without a hint (the Spark row writer writes INT(16) for ShortType today)");
     }
     gaps.put(ROUND_TRIP + "/null", "AvroSchemaConverterWithTimestampNTZ.convertFields silently drops NULL fields instead of failing fast, "
         + "so the column disappears from the MessageType");

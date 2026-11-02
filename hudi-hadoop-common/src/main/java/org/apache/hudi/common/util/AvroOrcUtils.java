@@ -107,12 +107,14 @@ public class AvroOrcUtils {
         boolVec.vector[vectorPos] = (boolean) value ? 1 : 0;
         break;
       case BYTE:
+        // INT8 values are Integers (Avro int); Bytes are accepted too
         LongColumnVector byteColVec = (LongColumnVector) colVector;
-        byteColVec.vector[vectorPos] = (byte) value;
+        byteColVec.vector[vectorPos] = integralValue(type, value, Byte.MIN_VALUE, Byte.MAX_VALUE);
         break;
       case SHORT:
+        // INT16 values are Integers (Avro int); Shorts are accepted too
         LongColumnVector shortColVec = (LongColumnVector) colVector;
-        shortColVec.vector[vectorPos] = (short) value;
+        shortColVec.vector[vectorPos] = integralValue(type, value, Short.MIN_VALUE, Short.MAX_VALUE);
         break;
       case INT:
         // the Avro logical type could be AvroTypeUtil.LOGICAL_TYPE_TIME_MILLIS, but we will ignore that fact here
@@ -160,6 +162,10 @@ public class AvroOrcUtils {
           bytesColVec.isNull[vectorPos] = true;
           bytesColVec.noNulls = false;
         } else {
+          if (type.getCategory() == TypeDescription.Category.CHAR) {
+            // ORC truncates a char(n) value to n characters; fail instead of losing characters
+            checkCharLength(type, value);
+          }
           bytesColVec.setRef(vectorPos, bytes, 0, bytes.length);
         }
         break;
@@ -378,10 +384,12 @@ public class AvroOrcUtils {
           matches = value instanceof Boolean;
           break;
         case BYTE:
-          matches = value instanceof Byte;
+          // INT8 values are Integers. An Avro union holds one int branch at most, so an Integer matches only one child.
+          matches = value instanceof Byte || value instanceof Integer;
           break;
         case SHORT:
-          matches = value instanceof Short;
+          // INT16 values are Integers, as for BYTE
+          matches = value instanceof Short || value instanceof Integer;
           break;
         case INT:
           matches = value instanceof Integer;
@@ -491,9 +499,15 @@ public class AvroOrcUtils {
       case BOOLEAN:
         return ((LongColumnVector) colVector).vector[vectorPos] != 0;
       case BYTE:
-        return (byte) ((LongColumnVector) colVector).vector[vectorPos];
+        // INT8 values are Integers (Avro int). Other schemas keep today's Byte.
+        return schema.getType() == HoodieSchemaType.INT8
+            ? (Object) (int) ((LongColumnVector) colVector).vector[vectorPos]
+            : (Object) (byte) ((LongColumnVector) colVector).vector[vectorPos];
       case SHORT:
-        return (short) ((LongColumnVector) colVector).vector[vectorPos];
+        // INT16 values are Integers (Avro int). Other schemas keep today's Short.
+        return schema.getType() == HoodieSchemaType.INT16
+            ? (Object) (int) ((LongColumnVector) colVector).vector[vectorPos]
+            : (Object) (short) ((LongColumnVector) colVector).vector[vectorPos];
       case INT:
         return (int) ((LongColumnVector) colVector).vector[vectorPos];
       case LONG:
@@ -507,7 +521,8 @@ public class AvroOrcUtils {
         int maxLength = type.getMaxLength();
         String result = ((BytesColumnVector) colVector).toString(vectorPos);
         if (result.length() <= maxLength) {
-          return result;
+          // A CHAR(n) value is padded to n, as engines hand it over; ORC may return it without the padding
+          return schema.getType() == HoodieSchemaType.CHAR ? padChar(result, ((HoodieSchema.Char) schema).getLength()) : result;
         } else {
           throw new HoodieIOException("CHAR/VARCHAR has length " + result.length() + " greater than Max Length allowed");
         }
@@ -608,6 +623,51 @@ public class AvroOrcUtils {
     }
   }
 
+  /**
+   * The value of an integral column narrower than int, checked against the column's range so that ORC does not
+   * truncate it.
+   */
+  private static long integralValue(TypeDescription type, Object value, long min, long max) {
+    if (!(value instanceof Number)) {
+      throw new IllegalStateException(String.format("Unrecognized type for ORC %s field value, which has type %s, value %s",
+          type.getCategory().getName(), value.getClass().getName(), value));
+    }
+    long longValue = ((Number) value).longValue();
+    if (longValue < min || longValue > max) {
+      throw new IllegalArgumentException(String.format("Value %s is out of range for ORC %s", value, type.getCategory().getName()));
+    }
+    return longValue;
+  }
+
+  /**
+   * Fails when a value does not fit the char(n) column without its trailing spaces.
+   */
+  private static void checkCharLength(TypeDescription type, Object value) {
+    String text = value.toString();
+    int end = text.length();
+    while (end > 0 && text.charAt(end - 1) == ' ') {
+      end--;
+    }
+    if (text.codePointCount(0, end) > type.getMaxLength()) {
+      throw new IllegalArgumentException(String.format("Value '%s' is longer than ORC %s", text, type));
+    }
+  }
+
+  /**
+   * Pads a CHAR(n) value with spaces to n characters.
+   */
+  private static String padChar(String value, int length) {
+    int chars = value.codePointCount(0, value.length());
+    if (chars >= length) {
+      return value;
+    }
+    StringBuilder padded = new StringBuilder(value.length() + length - chars).append(value);
+    for (int i = chars; i < length; i++) {
+      padded.append(' ');
+    }
+    return padded.toString();
+  }
+
   public static TypeDescription createOrcSchema(HoodieSchema schema) {
 
     final HoodieSchemaType type = schema.getType();
@@ -622,10 +682,11 @@ public class AvroOrcUtils {
       case INT:
         return TypeDescription.createInt();
       case INT8:
+        // createSchema reads tinyint back as INT; the table schema restores INT8
+        return TypeDescription.createByte();
       case INT16:
-        // RFC-88 bug list: written as ORC int, like INT, not as tinyint / smallint, whose column vectors
-        // addToVector would fill with (byte) / (short) casts the Integer values do not pass
-        return TypeDescription.createInt();
+        // createSchema reads smallint back as INT; the table schema restores INT16
+        return TypeDescription.createShort();
       case BYTES:
       case FIXED:
         return TypeDescription.createBinary();
@@ -731,8 +792,8 @@ public class AvroOrcUtils {
       case STRING:
         return TypeDescription.createString();
       case CHAR:
-        // RFC-88 bug list: written as ORC string, like STRING, not as char(n)
-        return TypeDescription.createString();
+        // createSchema reads char(n) back as STRING; the table schema restores CHAR(n)
+        return TypeDescription.createChar().withMaxLength(((HoodieSchema.Char) schema).getLength());
       case FLOAT:
         return TypeDescription.createFloat();
       case DOUBLE:

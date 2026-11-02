@@ -128,8 +128,10 @@ public final class ParquetSchemaMapper implements FormatSchemaMapper<MessageType
             : TypeSupport.nativeType();
       case INT8:
       case INT16:
-        return TypeSupport.lossy(type + " written as a plain INT32, without the INTEGER(" + (type == HoodieSchemaType.INT8 ? 8 : 16)
-            + ", signed) annotation; read back as INT");
+        // Written as RFC-99 asks. Without a hint the annotation still reads back as INT, as it does for the INT(16)
+        // columns the Spark row writer writes for ShortType today; RFC-88 step 2c switches that read.
+        return TypeSupport.lossy(type + " written as INT32 + INTEGER(" + (type == HoodieSchemaType.INT8 ? 8 : 16)
+            + ", signed); read back as INT without a hint, like the INT(16) columns Spark writes today");
       case CHAR:
         return TypeSupport.lossy("Parquet has no CHAR type: CHAR(n) written as BINARY + STRING, values as given; read back as STRING");
       case NULL:

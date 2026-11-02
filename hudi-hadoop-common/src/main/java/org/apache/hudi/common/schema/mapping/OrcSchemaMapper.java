@@ -71,12 +71,14 @@ public final class OrcSchemaMapper implements FormatSchemaMapper<TypeDescription
       case TIMESTAMP:
         return TypeSupport.lossy("UTC-adjusted timestamps written as ORC timestamp and read back as timestamp-millis (micros precision "
             + "lost); local timestamps written as ORC bigint and read back as LONG");
+      // Written natively; createSchema still reads the ORC types back as INT and STRING (RFC-88 step 2c switches that
+      // read), so the hint restores them
       case INT8:
-        return TypeSupport.lossy("INT8 written as ORC int, not tinyint; read back as INT");
+        return TypeSupport.lossy("INT8 written as ORC tinyint; read back as INT without a hint");
       case INT16:
-        return TypeSupport.lossy("INT16 written as ORC int, not smallint; read back as INT");
+        return TypeSupport.lossy("INT16 written as ORC smallint; read back as INT without a hint");
       case CHAR:
-        return TypeSupport.lossy("CHAR(n) written as ORC string, not char(n); read back as STRING");
+        return TypeSupport.lossy("CHAR(n) written as ORC char(n); read back as STRING without a hint");
       case UUID:
       case VARIANT:
       case BLOB:

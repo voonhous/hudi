@@ -108,28 +108,60 @@ public class TestAvroOrcUtils extends HoodieCommonTestHarness {
   }
 
   /**
-   * INT8 and INT16 are written as ORC int and CHAR(n) as ORC string, as INT and STRING are, so their Integer and
-   * string values go through the column vectors unchanged.
+   * INT8 and INT16 are written as ORC tinyint and smallint and CHAR(n) as ORC char(n). The values stay Integers and
+   * strings; a CHAR(n) value reads back padded to n. The reverse direction keeps today's INT and STRING.
    */
   @Test
-  public void testNarrowIntsAndCharConvertAsIntAndString() {
+  public void testNarrowIntsAndCharConvertNatively() {
     HoodieSchema record = HoodieSchema.createRecord("r", null, null, Arrays.asList(
         HoodieSchemaField.of("tiny", HoodieSchema.createInt8()),
         HoodieSchemaField.of("small", HoodieSchema.createNullable(HoodieSchema.createInt16())),
         HoodieSchemaField.of("code", HoodieSchema.createChar(4))));
     TypeDescription orc = AvroOrcUtils.createOrcSchema(record);
-    assertEquals(TypeDescription.fromString("struct<tiny:int,small:int,code:string>"), orc);
+    assertEquals(TypeDescription.fromString("struct<tiny:tinyint,small:smallint,code:char(4)>"), orc);
+    HoodieSchema back = AvroOrcUtils.createSchema(orc);
+    assertEquals(HoodieSchemaType.INT, back.getField("tiny").get().schema().getType());
+    assertEquals(HoodieSchemaType.INT, back.getField("small").get().schema().getType());
+    assertEquals(HoodieSchemaType.STRING, back.getField("code").get().schema().getType());
 
-    LongColumnVector tiny = new LongColumnVector(1);
-    AvroOrcUtils.addToVector(orc.getChildren().get(0), tiny, HoodieSchema.createInt8(), -7, 0);
-    assertEquals(-7, AvroOrcUtils.readFromVector(orc.getChildren().get(0), tiny, HoodieSchema.createInt8(), 0));
+    TypeDescription tinyType = orc.getChildren().get(0);
+    LongColumnVector tiny = new LongColumnVector(2);
+    AvroOrcUtils.addToVector(tinyType, tiny, HoodieSchema.createInt8(), -128, 0);
+    AvroOrcUtils.addToVector(tinyType, tiny, HoodieSchema.createInt8(), 127, 1);
+    assertEquals(-128, AvroOrcUtils.readFromVector(tinyType, tiny, HoodieSchema.createInt8(), 0));
+    assertEquals(127, AvroOrcUtils.readFromVector(tinyType, tiny, HoodieSchema.createNullable(HoodieSchema.createInt8()), 1));
+    assertThrows(IllegalArgumentException.class, () -> AvroOrcUtils.addToVector(tinyType, tiny, HoodieSchema.createInt8(), 128, 0));
+
+    TypeDescription smallType = orc.getChildren().get(1);
     LongColumnVector small = new LongColumnVector(1);
-    AvroOrcUtils.addToVector(orc.getChildren().get(1), small, HoodieSchema.createNullable(HoodieSchema.createInt16()), 300, 0);
-    assertEquals(300, AvroOrcUtils.readFromVector(orc.getChildren().get(1), small, HoodieSchema.createInt16(), 0));
-    BytesColumnVector code = new BytesColumnVector(1);
+    AvroOrcUtils.addToVector(smallType, small, HoodieSchema.createNullable(HoodieSchema.createInt16()), -32768, 0);
+    assertEquals(-32768, AvroOrcUtils.readFromVector(smallType, small, HoodieSchema.createInt16(), 0));
+    assertThrows(IllegalArgumentException.class, () -> AvroOrcUtils.addToVector(smallType, small, HoodieSchema.createInt16(), 32768, 0));
+
+    TypeDescription codeType = orc.getChildren().get(2);
+    BytesColumnVector code = new BytesColumnVector(2);
     code.initBuffer();
-    AvroOrcUtils.addToVector(orc.getChildren().get(2), code, HoodieSchema.createChar(4), new Utf8("ab  "), 0);
-    assertEquals("ab  ", AvroOrcUtils.readFromVector(orc.getChildren().get(2), code, HoodieSchema.createChar(4), 0).toString());
+    AvroOrcUtils.addToVector(codeType, code, HoodieSchema.createChar(4), new Utf8("ab  "), 0);
+    AvroOrcUtils.addToVector(codeType, code, HoodieSchema.createChar(4), "ab", 1);
+    assertEquals("ab  ", AvroOrcUtils.readFromVector(codeType, code, HoodieSchema.createChar(4), 0));
+    assertEquals("ab  ", AvroOrcUtils.readFromVector(codeType, code, HoodieSchema.createChar(4), 1));
+    // trailing spaces beyond n are padding, other characters are not
+    AvroOrcUtils.addToVector(codeType, code, HoodieSchema.createChar(4), "abcd  ", 0);
+    assertThrows(IllegalArgumentException.class, () -> AvroOrcUtils.addToVector(codeType, code, HoodieSchema.createChar(4), "abcde", 0));
+  }
+
+  /**
+   * An Integer goes to the tinyint or smallint branch of a union, as INT8 and INT16 values are Integers.
+   */
+  @Test
+  public void testUnionMatchesIntegerForNarrowInts() {
+    HoodieSchema schema = HoodieSchema.createUnion(Arrays.asList(HoodieSchema.createInt16(), HoodieSchema.create(HoodieSchemaType.STRING)));
+    TypeDescription type = AvroOrcUtils.createOrcSchema(schema);
+    assertEquals(TypeDescription.fromString("uniontype<smallint,string>"), type);
+    VectorizedRowBatch batch = TypeDescription.createStruct().addField("value", type).createRowBatch();
+    AvroOrcUtils.addToVector(type, batch.cols[0], schema, 12, 0);
+    assertEquals(0, ((UnionColumnVector) batch.cols[0]).tags[0]);
+    assertEquals(12, AvroOrcUtils.readFromVector(type, batch.cols[0], schema, 0));
   }
 
   /**
