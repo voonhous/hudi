@@ -25,6 +25,7 @@ import org.apache.hudi.common.schema.mapping.SyncOptions;
 import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.sync.common.schema.CatalogSchemaRenderer;
 import org.apache.hudi.sync.common.schema.CatalogSchemaRenderers;
+import org.apache.hudi.sync.common.util.SparkPropsRenderer;
 
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,7 @@ import java.util.stream.Collectors;
 
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_SUPPORT_TIMESTAMP_TYPE;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_SYNC_COMMENT;
+import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_SYNC_SCHEMA_STRING_LENGTH_THRESHOLD;
 import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_FIELDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -152,6 +154,19 @@ class TestHiveCatalogRenderer {
     CatalogSchemaRenderer<List<FieldSchema>> renderer = CatalogSchemaRenderers.get(CatalogSchemaRenderers.HIVE);
     assertInstanceOf(HiveCatalogRenderer.class, renderer);
     assertEquals(CatalogSchemaRenderers.HIVE, renderer.catalog());
+    // hudi-sync-common's renderer is discovered alongside, from its own service file.
+    assertInstanceOf(SparkPropsRenderer.class, CatalogSchemaRenderers.get(CatalogSchemaRenderers.SPARK_PROPERTIES));
+  }
+
+  /**
+   * SparkPropsRenderer cannot reference HiveSyncConfigHolder, so it repeats the keys Hive sync passes to
+   * SparkDataSourceTableUtils.
+   */
+  @Test
+  void sparkPropsRendererUsesHiveSyncKeys() {
+    assertEquals(HIVE_SYNC_SCHEMA_STRING_LENGTH_THRESHOLD.key(), SparkPropsRenderer.SCHEMA_STRING_LENGTH_THRESHOLD);
+    assertEquals((int) HIVE_SYNC_SCHEMA_STRING_LENGTH_THRESHOLD.defaultValue(), SparkPropsRenderer.DEFAULT_SCHEMA_STRING_LENGTH_THRESHOLD);
+    assertEquals(HIVE_SYNC_COMMENT.key(), SparkPropsRenderer.SYNC_COMMENT);
   }
 
   /**
