@@ -54,6 +54,54 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class TestHoodieSchemaConverter {
 
+  /**
+   * TINYINT, SMALLINT and CHAR(n) map to INT8, INT16 and CHAR(n) at every depth with {@code narrowIntAndChar}, and
+   * to INT, INT and STRING without it (the mapping of tables created before RFC-88 step 2c); VARCHAR(n) maps to STRING
+   * either way.
+   */
+  @Test
+  public void testNarrowIntAndCharMapping() {
+    RowType rowType = (RowType) DataTypes.ROW(
+        DataTypes.FIELD("f_tiny", DataTypes.TINYINT().notNull()),
+        DataTypes.FIELD("f_small", DataTypes.SMALLINT()),
+        DataTypes.FIELD("f_char", DataTypes.CHAR(10)),
+        DataTypes.FIELD("f_varchar", DataTypes.VARCHAR(10)),
+        DataTypes.FIELD("f_array", DataTypes.ARRAY(DataTypes.TINYINT())),
+        DataTypes.FIELD("f_map", DataTypes.MAP(DataTypes.STRING(), DataTypes.CHAR(3))),
+        DataTypes.FIELD("f_row", DataTypes.ROW(DataTypes.FIELD("f_nested", DataTypes.SMALLINT())))).notNull().getLogicalType();
+
+    HoodieSchema narrow = HoodieSchemaConverter.convertToSchema(rowType, "record", true);
+    assertEquals(HoodieSchemaType.INT8, fieldType(narrow, "f_tiny").getType());
+    assertEquals(HoodieSchemaType.INT16, fieldType(narrow, "f_small").getType());
+    assertEquals(HoodieSchemaType.CHAR, fieldType(narrow, "f_char").getType());
+    assertEquals(10, ((HoodieSchema.Char) fieldType(narrow, "f_char")).getLength());
+    assertEquals(HoodieSchemaType.STRING, fieldType(narrow, "f_varchar").getType());
+    assertEquals(HoodieSchemaType.INT8, fieldType(narrow, "f_array").getElementType().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.CHAR, fieldType(narrow, "f_map").getValueType().getNonNullType().getType());
+    assertEquals(HoodieSchemaType.INT16, fieldType(fieldType(narrow, "f_row"), "f_nested").getType());
+    // and they read back as the Flink types
+    RowType readBack = (RowType) HoodieSchemaConverter.convertToDataType(narrow).getLogicalType();
+    for (String name : new String[] {"f_tiny", "f_small", "f_char", "f_array", "f_row"}) {
+      assertEquals(rowType.getTypeAt(rowType.getFieldIndex(name)), readBack.getTypeAt(readBack.getFieldIndex(name)), name);
+    }
+
+    for (HoodieSchema legacy : Arrays.asList(HoodieSchemaConverter.convertToSchema(rowType),
+        HoodieSchemaConverter.convertToSchema(rowType, "record", false),
+        HoodieSchemaConverter.convertToSchema(rowType, "record", (String) null))) {
+      assertEquals(HoodieSchemaType.INT, fieldType(legacy, "f_tiny").getType());
+      assertEquals(HoodieSchemaType.INT, fieldType(legacy, "f_small").getType());
+      assertEquals(HoodieSchemaType.STRING, fieldType(legacy, "f_char").getType());
+      assertEquals(HoodieSchemaType.STRING, fieldType(legacy, "f_varchar").getType());
+      assertEquals(HoodieSchemaType.INT, fieldType(legacy, "f_array").getElementType().getNonNullType().getType());
+      assertEquals(HoodieSchemaType.STRING, fieldType(legacy, "f_map").getValueType().getNonNullType().getType());
+      assertEquals(HoodieSchemaType.INT, fieldType(fieldType(legacy, "f_row"), "f_nested").getType());
+    }
+  }
+
+  private static HoodieSchema fieldType(HoodieSchema record, String name) {
+    return record.getNonNullType().getField(name).get().schema().getNonNullType();
+  }
+
   @Test
   public void testPrimitiveTypes() {
     // String

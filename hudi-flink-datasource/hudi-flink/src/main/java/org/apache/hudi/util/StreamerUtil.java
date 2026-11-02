@@ -90,6 +90,8 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.orc.OrcFile;
 import org.apache.parquet.hadoop.ParquetFileWriter;
 
+import javax.annotation.Nullable;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
@@ -477,6 +479,54 @@ public class StreamerUtil {
   }
 
   /**
+   * Whether the table of {@code conf} maps Flink TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n) (RFC-88,
+   * {@link HoodieTableConfig#usesNarrowIntAndCharTypes}) instead of INT, INT and STRING.
+   *
+   * <p>The value {@link #setTypeSystemVersion} put in {@code conf} if it is there, so that every operator of a job
+   * agrees with the table factory; otherwise the table's, see {@link #usesNarrowIntAndCharTypes(String,
+   * org.apache.hadoop.conf.Configuration, int)}.
+   */
+  public static boolean usesNarrowIntAndCharTypes(Configuration conf) {
+    String typeSystemVersion = conf.getString(HoodieTableConfig.TYPE_SYSTEM_VERSION.key(), null);
+    if (typeSystemVersion != null) {
+      return Integer.parseInt(typeSystemVersion) >= 1;
+    }
+    return usesNarrowIntAndCharTypes(conf.get(FlinkOptions.PATH), HadoopConfigurations.getHadoopConf(conf),
+        conf.get(FlinkOptions.WRITE_TABLE_VERSION));
+  }
+
+  /**
+   * Whether the table at {@code basePath} maps Flink TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n): what
+   * its hoodie.properties says if it exists. A table that does not exist yet is created by this job, so it is a new
+   * table, which records the type system version when created at a table version that has it.
+   *
+   * @param basePath          the table path, or null
+   * @param hadoopConf        the Hadoop configuration
+   * @param writeTableVersion the table version a new table is created at
+   */
+  public static boolean usesNarrowIntAndCharTypes(@Nullable String basePath, org.apache.hadoop.conf.Configuration hadoopConf, int writeTableVersion) {
+    if (basePath != null && tableExists(basePath, hadoopConf)) {
+      HoodieStorage storage = HoodieStorageUtils.getStorage(basePath, HadoopFSUtils.getStorageConfWithCopy(hadoopConf));
+      return HoodieTableConfig.loadFromHoodieProps(storage, basePath).usesNarrowIntAndCharTypes();
+    }
+    HoodieTableVersion firstVersion = HoodieTableVersion.fromReleaseVersion(HoodieTableConfig.TYPE_SYSTEM_VERSION.getSinceVersion().get());
+    return HoodieTableConfig.CURRENT_TYPE_SYSTEM_VERSION >= 1
+        && HoodieTableVersion.fromVersionCode(writeTableVersion).greaterThanOrEquals(firstVersion);
+  }
+
+  /**
+   * Puts the type system version of the table of {@code conf} (see {@link #usesNarrowIntAndCharTypes(String,
+   * org.apache.hadoop.conf.Configuration, int)}) in {@code conf} as {@link HoodieTableConfig#TYPE_SYSTEM_VERSION}, so
+   * that the operators of the job, the write config and the file readers it configures use the mapping of the table.
+   * A value the job was given is replaced: the property is the table's, set when the table is created.
+   */
+  public static void setTypeSystemVersion(Configuration conf) {
+    boolean narrow = usesNarrowIntAndCharTypes(conf.get(FlinkOptions.PATH), HadoopConfigurations.getHadoopConf(conf),
+        conf.get(FlinkOptions.WRITE_TABLE_VERSION));
+    conf.setString(HoodieTableConfig.TYPE_SYSTEM_VERSION.key(), narrow ? String.valueOf(HoodieTableConfig.CURRENT_TYPE_SYSTEM_VERSION) : "0");
+  }
+
+  /**
    * Returns whether the hoodie partition exists under given table path {@code tablePath} and partition path {@code partitionPath}.
    *
    * @param tablePath     Base path of the table.
@@ -555,7 +605,7 @@ public class StreamerUtil {
    * Returns the table config or empty if the table does not exist.
    */
   public static Option<HoodieTableConfig> getTableConfig(String basePath, org.apache.hadoop.conf.Configuration hadoopConf) {
-    HoodieStorage storage = HoodieStorageUtils.getStorage(basePath, HadoopFSUtils.getStorageConf(hadoopConf));
+    HoodieStorage storage = HoodieStorageUtils.getStorage(basePath, HadoopFSUtils.getStorageConfWithCopy(hadoopConf));
     StoragePath metaPath = new StoragePath(basePath, HoodieTableMetaClient.METAFOLDER_NAME);
     try {
       if (storage.exists(new StoragePath(metaPath, HoodieTableConfig.HOODIE_PROPERTIES_FILE))) {

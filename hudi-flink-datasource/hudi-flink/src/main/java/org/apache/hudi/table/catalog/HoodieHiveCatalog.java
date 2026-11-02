@@ -496,10 +496,14 @@ public class HoodieHiveCatalog extends AbstractCatalog {
   private HoodieTableMetaClient initTableIfNotExists(ObjectPath tablePath, CatalogTable catalogTable) {
     Configuration flinkConf = Configuration.fromMap(catalogTable.getOptions());
     RowType rowType = DataTypeUtils.toRowType(catalogTable.getUnresolvedSchema());
+    // a new table maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n); a table already at the path keeps
+    // its mapping (RFC-88)
     final String avroSchema = HoodieSchemaConverter.convertToSchema(
         rowType,
         HoodieSchemaUtils.getRecordQualifiedName(tablePath.getObjectName()),
-        flinkConf.get(FlinkOptions.VECTOR_COLUMNS)).toString();
+        flinkConf.get(FlinkOptions.VECTOR_COLUMNS),
+        StreamerUtil.usesNarrowIntAndCharTypes(flinkConf.getOptional(PATH).orElseGet(() -> inferTablePath(tablePath, catalogTable)),
+            hiveConf, flinkConf.get(FlinkOptions.WRITE_TABLE_VERSION))).toString();
     flinkConf.set(FlinkOptions.SOURCE_AVRO_SCHEMA, avroSchema);
 
     // stores two copies of options:
@@ -617,7 +621,10 @@ public class HoodieHiveCatalog extends AbstractCatalog {
     // when the metadata fields are synced through the hive sync tool,
     // a compatibility issue would be reported.
     boolean withOperationField = Boolean.parseBoolean(table.getOptions().getOrDefault(FlinkOptions.CHANGELOG_ENABLED.key(), "false"));
-    List<FieldSchema> allColumns = HiveSchemaUtils.toHiveFieldSchema(table.getUnresolvedSchema(), withOperationField);
+    // the table's mapping of TINYINT, SMALLINT and CHAR(n) (RFC-88): INT8, INT16 and CHAR(n) for a table not created yet
+    boolean narrowIntAndChar = StreamerUtil.usesNarrowIntAndCharTypes(location, hiveConf,
+        Configuration.fromMap(table.getOptions()).get(FlinkOptions.WRITE_TABLE_VERSION));
+    List<FieldSchema> allColumns = HiveSchemaUtils.toHiveFieldSchema(table.getUnresolvedSchema(), withOperationField, narrowIntAndChar);
 
     // Table columns and partition keys
     CatalogTable catalogTable = (CatalogTable) table;
@@ -655,7 +662,8 @@ public class HoodieHiveCatalog extends AbstractCatalog {
     serdeProperties.put(ConfigUtils.IS_QUERY_AS_RO_TABLE, String.valueOf(!useRealTimeInputFormat));
     serdeProperties.put("serialization.format", "1");
 
-    serdeProperties.putAll(TableOptionProperties.translateFlinkTableProperties2Spark(catalogTable, properties, partitionKeys, withOperationField));
+    serdeProperties.putAll(TableOptionProperties.translateFlinkTableProperties2Spark(
+        catalogTable, properties, partitionKeys, withOperationField, narrowIntAndChar));
 
     sd.setSerdeInfo(new SerDeInfo(null, serDeClassName, serdeProperties));
 

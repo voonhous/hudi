@@ -35,9 +35,15 @@ import org.apache.flink.table.types.DataType;
  * {@link TypeSystemMapper} for Flink (RFC-88, type plane), keyed {@link TypeSystems#FLINK}.
  *
  * <p>Wraps {@link HoodieSchemaConverter} in both directions: {@link HoodieSchemaConverter#convertToDataType} for
- * {@link #toTypeSystem} and {@link HoodieSchemaConverter#convertToSchema(org.apache.flink.table.types.logical.LogicalType, String)}
- * for {@link #fromTypeSystem}. It replaces {@code HoodieSchemaConverter} once callers switch to the mapper (RFC-88
+ * {@link #toTypeSystem} and
+ * {@link HoodieSchemaConverter#convertToSchema(org.apache.flink.table.types.logical.LogicalType, String, boolean)} for
+ * {@link #fromTypeSystem}. It replaces {@code HoodieSchemaConverter} once callers switch to the mapper (RFC-88
  * rollout step 2); until then nothing calls it and behaviour is unchanged.
+ *
+ * <p>The mapper is stateless and maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n), the mapping of tables
+ * created from now on. A table created before keeps INT, INT and STRING for these types
+ * ({@code HoodieTableConfig#usesNarrowIntAndCharTypes}); that is the caller's business, which converts with
+ * {@code narrowIntAndChar} off for such a table.
  *
  * <p>The type parameter is {@link DataType}, the type {@code convertToDataType} returns and most callers hold; the
  * reverse direction converts its {@link DataType#getLogicalType() logical type}.
@@ -47,9 +53,8 @@ import org.apache.flink.table.types.DataType;
  * {@link #fromTypeSystem} takes the hint's full name. Without a hint, or when the hint is not a record, it uses
  * {@value #DEFAULT_RECORD_NAME}, the converter's own default.
  *
- * <p>Flink types have no field metadata, so this mapper has no markers: LOSSY types (ENUM, FIXED, UUID, VECTOR, BLOB,
- * and INT8, INT16 and CHAR until {@code convertToSchema} maps TINYINT, SMALLINT and CHAR(n) to them) come back only
- * from the hint, through {@link HoodieSchemaHints#restore}. The converter's {@code vectorColumns}
+ * <p>Flink types have no field metadata, so this mapper has no markers: LOSSY types (ENUM, FIXED, UUID, VECTOR and
+ * BLOB) come back only from the hint, through {@link HoodieSchemaHints#restore}. The converter's {@code vectorColumns}
  * argument is not used: it is a table option of the write path, not part of the Flink type.
  */
 public final class FlinkTypeMapper implements TypeSystemMapper<DataType> {
@@ -81,7 +86,7 @@ public final class FlinkTypeMapper implements TypeSystemMapper<DataType> {
     String recordName = hint.isPresent() && hint.get().getNonNullType().getType() == HoodieSchemaType.RECORD
         ? hint.get().getNonNullType().getFullName()
         : DEFAULT_RECORD_NAME;
-    HoodieSchema converted = HoodieSchemaConverter.convertToSchema(type.getLogicalType(), recordName);
+    HoodieSchema converted = HoodieSchemaConverter.convertToSchema(type.getLogicalType(), recordName, true);
     return HoodieSchemaHints.restore(converted, hint, t -> support(t).isLossy(),
         n -> fromTypeSystem(toTypeSystem(n), Option.empty()), HoodieSchemaEquivalence.Mode.LOGICAL);
   }
@@ -101,14 +106,6 @@ public final class FlinkTypeMapper implements TypeSystemMapper<DataType> {
       case BLOB:
         return TypeSupport.lossy("BLOB stored as Flink ROW<type STRING, data BYTES, reference ROW<...>>; read back as BLOB by its field "
             + "structure, so any ROW of that shape becomes BLOB");
-      // Stored natively; until RFC-88 rollout step 2c, convertToSchema still reads TINYINT and SMALLINT back as INT
-      // and CHAR(n) as STRING, so these come back from the hint
-      case INT8:
-        return TypeSupport.lossy("INT8 stored as Flink TINYINT, which convertToSchema reads back as INT");
-      case INT16:
-        return TypeSupport.lossy("INT16 stored as Flink SMALLINT, which convertToSchema reads back as INT");
-      case CHAR:
-        return TypeSupport.lossy("CHAR(n) stored as Flink CHAR(n), which convertToSchema reads back as STRING");
       case UNION:
         return TypeSupport.unsupported("Flink has no union type: a union with more than one non-null branch is written as "
             + "RAW(Object), which convertToSchema cannot read back");
@@ -118,7 +115,8 @@ public final class FlinkTypeMapper implements TypeSystemMapper<DataType> {
             : TypeSupport.unsupported("Flink before 2.1 has no VARIANT type");
       default:
         // TIMESTAMP and TIME keep millis / micros precision and the UTC adjustment (as TIMESTAMP vs
-        // TIMESTAMP_LTZ); DECIMAL keeps precision and scale (the backing is a physical detail).
+        // TIMESTAMP_LTZ); DECIMAL keeps precision and scale (the backing is a physical detail); INT8, INT16 and
+        // CHAR(n) are TINYINT, SMALLINT and CHAR(n).
         return TypeSupport.nativeType();
     }
   }

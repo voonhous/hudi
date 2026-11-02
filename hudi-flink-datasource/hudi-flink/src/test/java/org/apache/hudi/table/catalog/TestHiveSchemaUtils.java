@@ -88,6 +88,36 @@ class TestHiveSchemaUtils {
             "struct<id:int,attributes:map<string,string>>"));
   }
 
+  /**
+   * A table that maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n) (RFC-88) gets the Hive types Hive
+   * sync renders for them; other types are as for any table.
+   */
+  @ParameterizedTest
+  @MethodSource("flinkToHiveTypesOfNewTable")
+  void testFlinkToHiveTypeConversionOfNewTable(DataType flinkType, String expectedHiveType) {
+    assertEquals(
+        expectedHiveType,
+        HiveSchemaUtils.toHiveTypeInfo(flinkType.getLogicalType(), true).getTypeName());
+  }
+
+  private static Stream<Arguments> flinkToHiveTypesOfNewTable() {
+    return Stream.of(
+        Arguments.of(DataTypes.TINYINT(), "tinyint"),
+        Arguments.of(DataTypes.SMALLINT(), "smallint"),
+        Arguments.of(DataTypes.CHAR(4), "char(4)"),
+        Arguments.of(DataTypes.CHAR(255), "char(255)"),
+        // Hive's char holds at most 255 characters
+        Arguments.of(DataTypes.CHAR(256), "string"),
+        Arguments.of(DataTypes.VARCHAR(12), "string"),
+        Arguments.of(DataTypes.INT(), "int"),
+        Arguments.of(DataTypes.ARRAY(DataTypes.TINYINT()), "array<tinyint>"),
+        Arguments.of(
+            DataTypes.ROW(
+                DataTypes.FIELD("id", DataTypes.SMALLINT()),
+                DataTypes.FIELD("attributes", DataTypes.MAP(DataTypes.STRING(), DataTypes.CHAR(3)))),
+            "struct<id:smallint,attributes:map<string,char(3)>>"));
+  }
+
   @ParameterizedTest
   @MethodSource("hiveToFlinkTypes")
   void testHiveToFlinkTypeConversion(String hiveType, DataType expectedFlinkType) {

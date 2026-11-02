@@ -321,10 +321,13 @@ public class HoodieCatalog extends AbstractCatalog {
       throw new CatalogException("Primary key definition is missing");
     }
     LogicalType rowType = resolvedSchema.toPhysicalRowDataType().getLogicalType();
+    // a new table maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n); a table already at the path keeps
+    // its mapping (RFC-88)
     final String avroSchema = HoodieSchemaConverter.convertToSchema(
         rowType,
         HoodieSchemaUtils.getRecordQualifiedName(tablePath.getObjectName()),
-        conf.get(FlinkOptions.VECTOR_COLUMNS)).toString();
+        conf.get(FlinkOptions.VECTOR_COLUMNS),
+        StreamerUtil.usesNarrowIntAndCharTypes(tablePathStr, hadoopConf, conf.get(FlinkOptions.WRITE_TABLE_VERSION))).toString();
     conf.set(FlinkOptions.SOURCE_AVRO_SCHEMA, avroSchema);
 
     // stores two copies of options:
@@ -623,10 +626,14 @@ public class HoodieCatalog extends AbstractCatalog {
     Map<String, String> options = newCatalogTable.getOptions();
     ResolvedCatalogTable resolvedTable =  (ResolvedCatalogTable) newCatalogTable;
     LogicalType rowType = resolvedTable.getResolvedSchema().toPhysicalRowDataType().getLogicalType();
+    String tablePathStr = inferTablePath(catalogPathStr, tablePath);
+    // the table's mapping of TINYINT, SMALLINT and CHAR(n) (RFC-88)
     final String avroSchema = HoodieSchemaConverter.convertToSchema(
         rowType,
         HoodieSchemaUtils.getRecordQualifiedName(tablePath.getObjectName()),
-        options.get(FlinkOptions.VECTOR_COLUMNS.key())).toString();
+        options.get(FlinkOptions.VECTOR_COLUMNS.key()),
+        StreamerUtil.usesNarrowIntAndCharTypes(tablePathStr, hadoopConf,
+            Configuration.fromMap(options).get(FlinkOptions.WRITE_TABLE_VERSION))).toString();
     options.put(FlinkOptions.SOURCE_AVRO_SCHEMA.key(), avroSchema);
     java.util.Optional<UniqueConstraint> pkConstraintOpt = resolvedTable.getResolvedSchema().getPrimaryKey();
     if (pkConstraintOpt.isPresent()) {
@@ -641,7 +648,6 @@ public class HoodieCatalog extends AbstractCatalog {
     if (!metaCols.isEmpty()) {
       options.put(TableOptionProperties.METADATA_COLUMNS, String.join(",", metaCols));
     }
-    String tablePathStr = inferTablePath(catalogPathStr, tablePath);
     try {
       TableOptionProperties.overwriteProperties(tablePathStr, hadoopConf, options);
     } catch (IOException e) {

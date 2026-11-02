@@ -139,10 +139,18 @@ public final class IndexPlannerSupport {
 
   /**
    * The Hudi schema the planner types columns and literals with: the table's Flink row type, as Flink's own data
-   * skipping decodes the column stats with it.
+   * skipping decodes the column stats with it, with today's mapping of TINYINT, SMALLINT and CHAR(n).
    */
   public static HoodieSchema schemaOf(RowType rowType) {
     return HoodieSchemaConverter.convertToSchema(rowType);
+  }
+
+  /**
+   * As {@link #schemaOf(RowType)}, with the mapping of TINYINT, SMALLINT and CHAR(n) of the table of {@code conf}
+   * (RFC-88): INT8, INT16 and CHAR(n) for a table created from now on.
+   */
+  public static HoodieSchema schemaOf(RowType rowType, Configuration conf) {
+    return HoodieSchemaConverter.convertToSchema(rowType, StreamerUtil.usesNarrowIntAndCharTypes(conf));
   }
 
   /**
@@ -221,7 +229,7 @@ public final class IndexPlannerSupport {
       return probe;
     }
     try {
-      HoodieSchema schema = schemaOf(rowType);
+      HoodieSchema schema = schemaOf(rowType, conf);
       Option<Expression> filter = translate(withoutNarrowIntsStoredAsInt(dataFilters, rowType, schema), schema);
       return filter.isPresent() ? probe.withPlannerFilter(filter.get()) : probe;
     } catch (Throwable t) {
@@ -343,7 +351,7 @@ public final class IndexPlannerSupport {
       if (filter == null || available.isEmpty() || fileSlices.isEmpty()) {
         return CandidateFiles.all();
       }
-      HoodieSchema schema = schemaOf(rowType);
+      HoodieSchema schema = schemaOf(rowType, conf);
       List<IndexLookup> plan = newPlanner().plan(filter, schema, available);
       if (plan.isEmpty()) {
         return CandidateFiles.all();
@@ -446,7 +454,7 @@ public final class IndexPlannerSupport {
       if (filter == null || partitions.isEmpty()) {
         return CandidateFiles.all();
       }
-      HoodieSchema schema = schemaOf(rowType);
+      HoodieSchema schema = schemaOf(rowType, conf);
       List<IndexLookup> plan = newPlanner().plan(filter, schema, EnumSet.of(MetadataPartitionType.PARTITION_STATS));
       // the files are not listed yet: each partition stands for its files
       Map<String, List<String>> filesByPartition = new LinkedHashMap<>();

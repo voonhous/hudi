@@ -48,18 +48,36 @@ import java.util.List;
  * Create a TypeInfoLogicalTypeVisitor for hoodie table.
  */
 public class TypeInfoLogicalTypeVisitor extends LogicalTypeDefaultVisitor<TypeInfo> {
+  /**
+   * The longest Hive char ({@code HiveChar.MAX_CHAR_LENGTH}); a longer CHAR(n) is a Hive string, as Hive sync renders it.
+   */
+  private static final int MAX_HIVE_CHAR_LENGTH = 255;
+
   private final LogicalType type;
+  /**
+   * Whether the table maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n) (RFC-88), which Hive reads as
+   * tinyint, smallint and char(n); otherwise they are stored as INT and STRING, read as int and string.
+   */
+  private final boolean narrowIntAndChar;
 
   TypeInfoLogicalTypeVisitor(DataType dataType) {
     this(dataType.getLogicalType());
   }
 
   TypeInfoLogicalTypeVisitor(LogicalType type) {
+    this(type, false);
+  }
+
+  TypeInfoLogicalTypeVisitor(LogicalType type, boolean narrowIntAndChar) {
     this.type = type;
+    this.narrowIntAndChar = narrowIntAndChar;
   }
 
   @Override
   public TypeInfo visit(CharType charType) {
+    if (narrowIntAndChar && charType.getLength() <= MAX_HIVE_CHAR_LENGTH) {
+      return TypeInfoFactory.getCharTypeInfo(charType.getLength());
+    }
     // hoodie only supports avro compatible data type
     return TypeInfoFactory.stringTypeInfo;
   }
@@ -97,14 +115,14 @@ public class TypeInfoLogicalTypeVisitor extends LogicalTypeDefaultVisitor<TypeIn
 
   @Override
   public TypeInfo visit(TinyIntType tinyIntType) {
-    // hoodie only supports avro compatible data type
-    return TypeInfoFactory.intTypeInfo;
+    // a table created before RFC-88 step 2c stores it as INT
+    return narrowIntAndChar ? TypeInfoFactory.byteTypeInfo : TypeInfoFactory.intTypeInfo;
   }
 
   @Override
   public TypeInfo visit(SmallIntType smallIntType) {
-    // hoodie only supports avro compatible data type
-    return TypeInfoFactory.intTypeInfo;
+    // a table created before RFC-88 step 2c stores it as INT
+    return narrowIntAndChar ? TypeInfoFactory.shortTypeInfo : TypeInfoFactory.intTypeInfo;
   }
 
   @Override

@@ -31,6 +31,7 @@ import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.ArrayType;
+import org.apache.flink.table.types.logical.CharType;
 import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LocalZonedTimestampType;
@@ -56,7 +57,8 @@ import java.util.stream.Collectors;
 public class HoodieSchemaConverter {
 
   /**
-   * Converts a Flink LogicalType into a HoodieSchema.
+   * Converts a Flink LogicalType into a HoodieSchema, with today's mapping of TINYINT, SMALLINT and CHAR(n) (see
+   * {@link #convertToSchema(LogicalType, String, Map, boolean)}).
    *
    * <p>Uses "record" as the default type name for record types.
    *
@@ -68,7 +70,19 @@ public class HoodieSchemaConverter {
   }
 
   /**
-   * Converts a Flink LogicalType into a HoodieSchema with specified record name.
+   * Converts a Flink LogicalType into a HoodieSchema, mapping TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n)
+   * when {@code narrowIntAndChar} is set and to INT, INT and STRING otherwise (see
+   * {@link #convertToSchema(LogicalType, String, Map, boolean)}).
+   *
+   * <p>Uses "record" as the default type name for record types.
+   */
+  public static HoodieSchema convertToSchema(LogicalType logicalType, boolean narrowIntAndChar) {
+    return convertToSchema(logicalType, "record", Collections.emptyMap(), narrowIntAndChar);
+  }
+
+  /**
+   * Converts a Flink LogicalType into a HoodieSchema with specified record name, with today's mapping of TINYINT,
+   * SMALLINT and CHAR(n) (see {@link #convertToSchema(LogicalType, String, Map, boolean)}).
    *
    * <p>The "{rowName}." is used as the nested row type name prefix in order to generate
    * the right schema. Nested record types that only differ by type name are still compatible.
@@ -86,7 +100,16 @@ public class HoodieSchemaConverter {
   }
 
   /**
-   * Converts a Flink LogicalType into a HoodieSchema with top-level VECTOR columns.
+   * As {@link #convertToSchema(LogicalType, String)}, mapping TINYINT, SMALLINT and CHAR(n) as
+   * {@code narrowIntAndChar} says.
+   */
+  public static HoodieSchema convertToSchema(LogicalType logicalType, String rowName, boolean narrowIntAndChar) {
+    return convertToSchema(logicalType, rowName, Collections.emptyMap(), narrowIntAndChar);
+  }
+
+  /**
+   * Converts a Flink LogicalType into a HoodieSchema with top-level VECTOR columns, with today's mapping of TINYINT,
+   * SMALLINT and CHAR(n).
    *
    * <p>The vector column option uses {@code colName[:dimension]} entries separated by commas.
    * The dimension defaults to 128. The vector element type is inferred from the Flink array
@@ -101,13 +124,26 @@ public class HoodieSchemaConverter {
       LogicalType logicalType,
       String rowName,
       String vectorColumns) {
-    Map<String, Integer> vectorColumnMap = vectorColumns == null || vectorColumns.trim().isEmpty()
-        ? Collections.emptyMap() : VectorColumnParser.parse(vectorColumns);
-    return convertToSchema(logicalType, rowName, vectorColumnMap);
+    return convertToSchema(logicalType, rowName, vectorColumns, false);
   }
 
   /**
-   * Converts a Flink LogicalType into a HoodieSchema with the specified top-level VECTOR columns.
+   * As {@link #convertToSchema(LogicalType, String, String)}, mapping TINYINT, SMALLINT and CHAR(n) as
+   * {@code narrowIntAndChar} says.
+   */
+  public static HoodieSchema convertToSchema(
+      LogicalType logicalType,
+      String rowName,
+      String vectorColumns,
+      boolean narrowIntAndChar) {
+    Map<String, Integer> vectorColumnMap = vectorColumns == null || vectorColumns.trim().isEmpty()
+        ? Collections.emptyMap() : VectorColumnParser.parse(vectorColumns);
+    return convertToSchema(logicalType, rowName, vectorColumnMap, narrowIntAndChar);
+  }
+
+  /**
+   * Converts a Flink LogicalType into a HoodieSchema with the specified top-level VECTOR columns, with today's
+   * mapping of TINYINT, SMALLINT and CHAR(n).
    *
    * @param logicalType   Flink logical type
    * @param rowName       the record name
@@ -118,6 +154,29 @@ public class HoodieSchemaConverter {
       LogicalType logicalType,
       String rowName,
       Map<String, Integer> vectorColumns) {
+    return convertToSchema(logicalType, rowName, vectorColumns, false);
+  }
+
+  /**
+   * Converts a Flink LogicalType into a HoodieSchema with the specified top-level VECTOR columns.
+   *
+   * <p>{@code narrowIntAndChar} picks the mapping of TINYINT, SMALLINT and CHAR(n), at every depth (RFC-88): INT8,
+   * INT16 and CHAR(n) when set, the mapping of tables created from now on
+   * ({@code HoodieTableConfig#usesNarrowIntAndCharTypes}); INT, INT and STRING when not, the mapping of every table
+   * created before. The converter itself does not know the table: callers pass the table's mapping. VARCHAR(n) maps
+   * to STRING either way (RFC-88 rule 5), without its length.
+   *
+   * @param logicalType      Flink logical type
+   * @param rowName          the record name
+   * @param vectorColumns    vector column names and dimensions
+   * @param narrowIntAndChar whether TINYINT, SMALLINT and CHAR(n) map to INT8, INT16 and CHAR(n)
+   * @return HoodieSchema matching this logical type
+   */
+  public static HoodieSchema convertToSchema(
+      LogicalType logicalType,
+      String rowName,
+      Map<String, Integer> vectorColumns,
+      boolean narrowIntAndChar) {
     ValidationUtils.checkArgument(vectorColumns.isEmpty() || logicalType instanceof RowType,
         "VECTOR columns can only be configured for top-level ROW schemas.");
     validateVectorColumns(logicalType, vectorColumns);
@@ -135,7 +194,13 @@ public class HoodieSchemaConverter {
         break;
 
       case TINYINT:
+        schema = narrowIntAndChar ? HoodieSchema.createInt8() : HoodieSchema.create(HoodieSchemaType.INT);
+        break;
+
       case SMALLINT:
+        schema = narrowIntAndChar ? HoodieSchema.createInt16() : HoodieSchema.create(HoodieSchemaType.INT);
+        break;
+
       case INTEGER:
         schema = HoodieSchema.create(HoodieSchemaType.INT);
         break;
@@ -153,6 +218,11 @@ public class HoodieSchemaConverter {
         break;
 
       case CHAR:
+        schema = narrowIntAndChar
+            ? HoodieSchema.createChar(((CharType) logicalType).getLength())
+            : HoodieSchema.create(HoodieSchemaType.STRING);
+        break;
+
       case VARCHAR:
         schema = HoodieSchema.create(HoodieSchemaType.STRING);
         break;
@@ -244,7 +314,7 @@ public class HoodieSchemaConverter {
             fieldSchema = VectorColumnParser.convertVectorField(fieldName, fieldType, vectorColumns.get(fieldName));
           } else {
             // Recursive call for field schema
-            fieldSchema = convertToSchema(fieldType, rowName + "." + fieldName, Collections.emptyMap());
+            fieldSchema = convertToSchema(fieldType, rowName + "." + fieldName, Collections.emptyMap(), narrowIntAndChar);
           }
 
           // Create field with or without default value
@@ -263,13 +333,13 @@ public class HoodieSchemaConverter {
       case MULTISET:
       case MAP:
         LogicalType valueType = extractValueTypeForMap(logicalType);
-        HoodieSchema valueSchema = convertToSchema(valueType, rowName, Collections.emptyMap());
+        HoodieSchema valueSchema = convertToSchema(valueType, rowName, Collections.emptyMap(), narrowIntAndChar);
         schema = HoodieSchema.createMap(valueSchema);
         break;
 
       case ARRAY:
         ArrayType arrayType = (ArrayType) logicalType;
-        HoodieSchema elementSchema = convertToSchema(arrayType.getElementType(), rowName, Collections.emptyMap());
+        HoodieSchema elementSchema = convertToSchema(arrayType.getElementType(), rowName, Collections.emptyMap(), narrowIntAndChar);
         schema = HoodieSchema.createArray(elementSchema);
         break;
 

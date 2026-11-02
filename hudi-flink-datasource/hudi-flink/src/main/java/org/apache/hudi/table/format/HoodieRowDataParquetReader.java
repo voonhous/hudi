@@ -64,11 +64,21 @@ public class HoodieRowDataParquetReader implements HoodieRowDataFileReader  {
   private HoodieSchema fileSchema;
   private DataType fileRowType;
   private final List<ClosableIterator<RowData>> readerIterators = new ArrayList<>();
+  /**
+   * Whether {@link #getSchema} maps the file's TINYINT, SMALLINT and CHAR(n) columns (INT(8) / INT(16) annotated
+   * INT32) to INT8, INT16 and CHAR(n), as the table does (RFC-88), or to INT and STRING.
+   */
+  private final boolean narrowIntAndChar;
 
   public HoodieRowDataParquetReader(HoodieStorage storage, StoragePath path) {
+    this(storage, path, false);
+  }
+
+  public HoodieRowDataParquetReader(HoodieStorage storage, StoragePath path, boolean narrowIntAndChar) {
     this.storage = storage;
     this.parquetUtils = (ParquetUtils) HoodieIOFactory.getIOFactory(storage).getFileFormatUtils(HoodieFileFormat.PARQUET);
     this.path = path;
+    this.narrowIntAndChar = narrowIntAndChar;
   }
 
   @Override
@@ -132,7 +142,7 @@ public class HoodieRowDataParquetReader implements HoodieRowDataFileReader  {
   @Override
   public HoodieSchema getSchema() {
     if (fileSchema == null) {
-      fileSchema = HoodieSchemaConverter.convertToSchema(getRowType().notNull().getLogicalType());
+      fileSchema = HoodieSchemaConverter.convertToSchema(getRowType().notNull().getLogicalType(), narrowIntAndChar);
     }
     return fileSchema;
   }

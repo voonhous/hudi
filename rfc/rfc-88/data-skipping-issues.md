@@ -79,6 +79,8 @@ Item 9, what the fix covers and what remains:
   columns stored as `INT` (`IndexPlannerSupport`). Before the fix, the column stats index never pruned on
   `TINYINT` / `SMALLINT` columns (`ColumnStatsProbe` read their stats with `getInt`, the `ClassCastException` was caught
   and nothing was pruned); it now prunes with in-range stats.
+- Since RFC-88 step 2c, a table created from now on stores `TINYINT` / `SMALLINT` as `INT8` / `INT16` (`INT32` +
+  `INT(8)` / `INT(16)`), so none of this applies to it; tables created before keep `INT` and rely on the fix above.
 - Tested in `ITTestNarrowIntStoredValues`: stored values, Parquet stats, reads and filters with data skipping on and
   off, for new writes and for a table holding pre-fix files, including a file that merges old and new rows.
 

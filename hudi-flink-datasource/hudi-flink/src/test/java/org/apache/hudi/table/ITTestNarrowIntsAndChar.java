@@ -66,13 +66,12 @@ import java.util.stream.Stream;
 import static org.apache.hudi.utils.TestData.assertRowsEqualsUnordered;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * End to end: a table whose HoodieSchema has INT8, INT16 and CHAR(10) columns, written by Flink SQL with a table
  * definition that uses TINYINT, SMALLINT and CHAR(10) and the HoodieSchema given through
  * {@link FlinkOptions#SOURCE_AVRO_SCHEMA}, reads back through Flink SQL with the same values (RFC-88 rollout step 2).
- * Without the option, Flink infers INT and STRING for these columns until step 2c.
+ * Without the option, a new table infers the same schema (step 2c).
  */
 @ExtendWith(FlinkMiniCluster.class)
 public class ITTestNarrowIntsAndChar {
@@ -165,12 +164,14 @@ public class ITTestNarrowIntsAndChar {
   }
 
   /**
-   * Without an explicit schema, Flink infers INT and STRING for TINYINT, SMALLINT and CHAR(10) columns, as before
-   * (RFC-88 rollout step 2c switches that), and writes them as plain INT32 and strings.
+   * Without an explicit schema, a new table infers INT8, INT16 and CHAR(10) for TINYINT, SMALLINT and CHAR(10)
+   * columns (RFC-88 rollout step 2c) and writes them as INT(8) / INT(16) annotated INT32 and strings. A table created
+   * before keeps INT and STRING ({@link ITTestNarrowIntAndCharTypeSystem}).
    */
-  @Test
-  void testInferredSchemaKeepsIntAndString() throws Exception {
-    createTable(HoodieTableType.COPY_ON_WRITE, "PARQUET", "upsert", false, false);
+  @ParameterizedTest
+  @MethodSource("tableTypesAndFormats")
+  void testInferredSchemaOfNewTable(HoodieTableType tableType, String format, boolean sourceV2) throws Exception {
+    createTable(tableType, format, "upsert", sourceV2, false);
     insertRows();
 
     assertRowsEqualsUnordered(Arrays.asList(
@@ -178,14 +179,13 @@ public class ITTestNarrowIntsAndChar {
         Row.of(2, (byte) 127, (short) 32767, "abcdefghij", 2L, "p2"),
         Row.of(3, null, null, null, 3L, "p3"),
         Row.of(4, (byte) -1, (short) -1, " x        ", 4L, "p4")), select("select * from " + TABLE));
-    HoodieSchema tableSchema = new TableSchemaResolver(metaClient()).getTableSchema(false);
-    assertEquals(HoodieSchemaType.INT, tableSchema.getField("f_tiny").get().schema().getNonNullType().getType());
-    assertEquals(HoodieSchemaType.INT, tableSchema.getField("f_small").get().schema().getNonNullType().getType());
-    assertEquals(HoodieSchemaType.STRING, tableSchema.getField("f_char").get().schema().getNonNullType().getType());
-    for (MessageType fileSchema : parquetFooters()) {
-      assertNull(fileSchema.getType("f_tiny").getLogicalTypeAnnotation());
-      assertNull(fileSchema.getType("f_small").getLogicalTypeAnnotation());
+    assertTableSchema();
+    if (tableType == HoodieTableType.COPY_ON_WRITE && format.equals("PARQUET")) {
+      assertParquetFooters();
     }
+    assertFilter("f_tiny < 0", 1, 4);
+    assertFilter("f_small = cast(32767 as smallint)", 2);
+    assertFilter("f_char = cast('ab' as char(10))", 1);
   }
 
   @ParameterizedTest

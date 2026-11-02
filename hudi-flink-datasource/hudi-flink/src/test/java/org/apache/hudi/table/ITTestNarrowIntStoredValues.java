@@ -28,6 +28,7 @@ import org.apache.hudi.util.StreamerUtil;
 import org.apache.hudi.utils.FlinkMiniCluster;
 import org.apache.hudi.utils.TestConfigurations;
 import org.apache.hudi.utils.TestTableEnvs;
+import org.apache.hudi.utils.TypeSystemTestUtils;
 
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
@@ -70,8 +71,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Flink TINYINT / SMALLINT columns that the table schema stores as INT (a table without an explicit schema created
- * before RFC-88 step 2c, or one whose schema says INT) store their values sign extended, so -1 is stored as -1 and
+ * Flink TINYINT / SMALLINT columns that the table schema stores as INT (a table created before RFC-88 step 2c without
+ * an explicit schema, or one whose schema says INT) store their values sign extended, so -1 is stored as -1 and
  * not as 255 / 65535 (rfc/rfc-88/data-skipping-issues.md, item 9).
  *
  * <p>Files written before the fix keep the unsigned values. Flink reads them back truncated, so they still read as
@@ -242,7 +243,12 @@ public class ITTestNarrowIntStoredValues {
   //  Utilities
   // -------------------------------------------------------------------------
 
-  private void createTable(HoodieTableType tableType, String format, String operation, String tinyType, String smallType) {
+  private void createTable(HoodieTableType tableType, String format, String operation, String tinyType, String smallType)
+      throws IOException {
+    if (!StreamerUtil.tableExists(tempFile.getAbsolutePath(), new Configuration())) {
+      // the table as created before RFC-88 step 2c: it stores TINYINT / SMALLINT columns as INT
+      TypeSystemTestUtils.createTableBeforeTypeSystemVersion(tempFile.getAbsolutePath(), TABLE, tableType, "id", "part", "ts", format, operation);
+    }
     String sql = TestConfigurations.sql(TABLE)
         .field("id int not null")
         .field("f_tiny " + tinyType)

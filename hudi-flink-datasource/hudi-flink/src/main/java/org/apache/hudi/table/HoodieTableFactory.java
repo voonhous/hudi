@@ -328,6 +328,8 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
     setupReadOptions(conf);
     // write options
     setupWriteOptions(conf);
+    // the table's mapping of TINYINT, SMALLINT and CHAR(n) (RFC-88): INT8, INT16 and CHAR(n) for a new table
+    StreamerUtil.setTypeSystemVersion(conf);
     // infer avro schema from physical DDL schema
     inferAvroSchema(conf, schema.toPhysicalRowDataType().notNull().getLogicalType());
   }
@@ -543,7 +545,8 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
       String inferredSchema = HoodieSchemaConverter.convertToSchema(
           rowType,
           HoodieSchemaUtils.getRecordQualifiedName(conf.get(FlinkOptions.TABLE_NAME)),
-          conf.get(FlinkOptions.VECTOR_COLUMNS)).toString();
+          conf.get(FlinkOptions.VECTOR_COLUMNS),
+          StreamerUtil.usesNarrowIntAndCharTypes(conf)).toString();
       conf.set(FlinkOptions.SOURCE_AVRO_SCHEMA, inferredSchema);
     }
   }

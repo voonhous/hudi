@@ -80,10 +80,16 @@ public class HoodieRowDataLanceReader implements HoodieRowDataFileReader {
   private final BufferAllocator metadataAllocator;
   private final LanceFileReader metadataReader;
   private final Schema arrowSchema;
+  /**
+   * Whether {@link #getSchema} maps TINYINT, SMALLINT and CHAR(n) columns to INT8, INT16 and CHAR(n), as the table
+   * does, or to INT and STRING; see {@link HoodieRowDataFileReaderFactory#usesNarrowIntAndCharTypes}.
+   */
+  private final boolean narrowIntAndChar;
   private boolean closed;
 
   public HoodieRowDataLanceReader(StoragePath path, HoodieConfig hoodieConfig) {
     this.path = path;
+    this.narrowIntAndChar = HoodieRowDataFileReaderFactory.usesNarrowIntAndCharTypes(hoodieConfig);
     this.dataAllocatorSize = hoodieConfig.getLongOrDefault(HoodieStorageConfig.LANCE_READ_ALLOCATOR_SIZE_BYTES);
     this.metadataAllocator = HoodieArrowAllocator.newChildAllocator(
         getClass().getSimpleName() + "-metadata-" + path.getName(),
@@ -214,13 +220,11 @@ public class HoodieRowDataLanceReader implements HoodieRowDataFileReader {
     Map<String, String> metadata = arrowSchema.getCustomMetadata();
     Set<String> vectorColumnNames = HoodieSchema.parseVectorColumnNames(
         metadata == null ? null : metadata.get(HoodieSchema.VECTOR_COLUMNS_METADATA_KEY));
-    if (vectorColumnNames.isEmpty()) {
-      return HoodieSchemaConverter.convertToSchema(rowType);
-    }
     Map<String, Integer> vectorColumns = new LinkedHashMap<>();
     vectorColumnNames.forEach(name -> vectorColumns.put(
         name, vectorSchemaFromField(arrowSchema.findField(name)).getDimension()));
-    return HoodieSchemaConverter.convertToSchema(rowType, "record", vectorColumns);
+    // TINYINT, SMALLINT and CHAR(n) columns as the table maps them (RFC-88)
+    return HoodieSchemaConverter.convertToSchema(rowType, "record", vectorColumns, narrowIntAndChar);
   }
 
   private void validateRequestedVectors(HoodieSchema requestedSchema) {

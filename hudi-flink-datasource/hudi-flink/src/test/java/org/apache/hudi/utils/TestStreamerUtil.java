@@ -282,8 +282,41 @@ class TestStreamerUtil {
       configs.put("hoodie.populate.meta.fields", "true");
     } else {
       configs.put("hoodie.table.storage.layout", "lsm_tree");
+      // RFC-88: tables created from now on map TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n)
+      configs.put("hoodie.table.type.system.version", "1");
     }
     return configs;
+  }
+
+  /**
+   * A table maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n) when its hoodie.properties says so; a table
+   * not created yet is a new table (at a table version that records the type system version).
+   */
+  @Test
+  void testUsesNarrowIntAndCharTypes() throws IOException {
+    Configuration conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
+    // no table yet: a new table
+    assertTrue(StreamerUtil.usesNarrowIntAndCharTypes(conf));
+    Configuration oldVersion = new Configuration(conf);
+    oldVersion.set(FlinkOptions.WRITE_TABLE_VERSION, HoodieTableVersion.NINE.versionCode());
+    assertFalse(StreamerUtil.usesNarrowIntAndCharTypes(oldVersion));
+
+    StreamerUtil.initTableIfNotExists(conf);
+    assertTrue(StreamerUtil.usesNarrowIntAndCharTypes(conf));
+    StreamerUtil.setTypeSystemVersion(conf);
+    assertEquals("1", conf.getString(HoodieTableConfig.TYPE_SYSTEM_VERSION.key(), null));
+
+    // a table created before the property existed
+    HoodieStorage storage = HoodieTestUtils.createMetaClient(tempFile.getAbsolutePath()).getStorage();
+    HoodieTableConfig.delete(storage, new StoragePath(tempFile.getAbsolutePath(), HoodieTableMetaClient.METAFOLDER_NAME),
+        Collections.singleton(HoodieTableConfig.TYPE_SYSTEM_VERSION.key()));
+    Configuration existing = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
+    assertFalse(StreamerUtil.usesNarrowIntAndCharTypes(existing));
+    // the job's value is replaced by the table's
+    existing.setString(HoodieTableConfig.TYPE_SYSTEM_VERSION.key(), "1");
+    StreamerUtil.setTypeSystemVersion(existing);
+    assertEquals("0", existing.getString(HoodieTableConfig.TYPE_SYSTEM_VERSION.key(), null));
+    assertFalse(StreamerUtil.usesNarrowIntAndCharTypes(existing));
   }
 
   @Test

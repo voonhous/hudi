@@ -187,6 +187,14 @@ public class HiveSchemaUtils {
    * Create Hive field schemas from Flink table schema including the hoodie metadata fields.
    */
   public static List<FieldSchema> toHiveFieldSchema(Schema schema, boolean withOperationField) {
+    return toHiveFieldSchema(schema, withOperationField, false);
+  }
+
+  /**
+   * Create Hive field schemas from Flink table schema including the hoodie metadata fields, for a table that maps
+   * TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n) when {@code narrowIntAndChar} is set (RFC-88).
+   */
+  public static List<FieldSchema> toHiveFieldSchema(Schema schema, boolean withOperationField, boolean narrowIntAndChar) {
     List<FieldSchema> columns = new ArrayList<>();
     Collection<String> metaFields = new ArrayList<>(HoodieRecord.HOODIE_META_COLUMNS);
     if (withOperationField) {
@@ -196,14 +204,14 @@ public class HiveSchemaUtils {
     for (String metaField : metaFields) {
       columns.add(new FieldSchema(metaField, "string", null));
     }
-    columns.addAll(createHiveColumns(schema));
+    columns.addAll(createHiveColumns(schema, narrowIntAndChar));
     return columns;
   }
 
   /**
    * Create Hive columns from Flink table schema.
    */
-  private static List<FieldSchema> createHiveColumns(Schema schema) {
+  private static List<FieldSchema> createHiveColumns(Schema schema, boolean narrowIntAndChar) {
     RowType rowType = DataTypeUtils.toRowType(schema);
 
     List<FieldSchema> columns = new ArrayList<>(rowType.getFieldCount());
@@ -212,7 +220,7 @@ public class HiveSchemaUtils {
       columns.add(
           new FieldSchema(
               field.getName(),
-              toHiveTypeInfo(field.getType()).getTypeName(),
+              toHiveTypeInfo(field.getType(), narrowIntAndChar).getTypeName(),
               null));
     }
     return columns;
@@ -228,8 +236,17 @@ public class HiveSchemaUtils {
    * @return the corresponding Hive data type
    */
   public static TypeInfo toHiveTypeInfo(LogicalType dataType) {
+    return toHiveTypeInfo(dataType, false);
+  }
+
+  /**
+   * As {@link #toHiveTypeInfo(LogicalType)}, for a table that maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and
+   * CHAR(n) when {@code narrowIntAndChar} is set: tinyint, smallint and char(n) (string beyond Hive's 255
+   * characters), as Hive sync renders them. Otherwise int, int and string.
+   */
+  public static TypeInfo toHiveTypeInfo(LogicalType dataType, boolean narrowIntAndChar) {
     checkNotNull(dataType, "type cannot be null");
-    return dataType.accept(new TypeInfoLogicalTypeVisitor(dataType));
+    return dataType.accept(new TypeInfoLogicalTypeVisitor(dataType, narrowIntAndChar));
   }
 
   /**

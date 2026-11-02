@@ -21,6 +21,7 @@ package org.apache.hudi.client;
 import org.apache.hudi.callback.common.WriteStatusValidator;
 import org.apache.hudi.client.common.HoodieFlinkEngineContext;
 import org.apache.hudi.client.transaction.TransactionUtils;
+import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.data.HoodieListData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
@@ -33,10 +34,26 @@ import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.TableServiceType;
 import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
+import org.apache.hudi.common.schema.internal.InternalSchema;
+import org.apache.hudi.common.schema.internal.convert.InternalSchemaConverter;
+import org.apache.hudi.common.schema.internal.io.FileBasedInternalSchemaStorageManager;
+import org.apache.hudi.common.schema.internal.utils.AvroSchemaEvolutionUtils;
+import org.apache.hudi.common.schema.internal.utils.InternalSchemaUtils;
+import org.apache.hudi.common.schema.internal.utils.SchemaChangeUtils;
+import org.apache.hudi.common.schema.internal.utils.SerDeHelper;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.util.CommitUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieCommitException;
+import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.index.FlinkHoodieIndexFactory;
 import org.apache.hudi.index.HoodieIndex;
@@ -50,6 +67,7 @@ import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.hudi.table.action.commit.BucketInfo;
 import org.apache.hudi.table.action.commit.BucketType;
 import org.apache.hudi.table.upgrade.FlinkUpgradeDowngradeHelper;
+import org.apache.hudi.util.NarrowTypeRestorer;
 
 import com.codahale.metrics.Timer;
 import lombok.AccessLevel;
@@ -57,6 +75,8 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.Path;
 
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -649,6 +669,103 @@ public class HoodieFlinkWriteClient<T>
     public void close() {
       ((MiniBatchHandle) writeHandle).closeGracefully();
     }
+  }
+
+  /**
+   * With schema evolution enabled, a commit saves the InternalSchema evolved from the writer schema and makes the
+   * schema converted from it the commit's schema. InternalSchema has no INT8, INT16 or CHAR (RFC-88), so for a table
+   * that maps Flink TINYINT, SMALLINT and CHAR(n) to them, the schema is saved here first, with the types taken back
+   * from the writer schema and the table schema ({@link NarrowTypeRestorer}); the commit then finds it saved. Other
+   * tables commit as before.
+   */
+  @Override
+  protected void commit(HoodieTable table, String commitActionType, String instantTime, HoodieCommitMetadata metadata,
+                        TableWriteStats tableWriteStats, boolean skipStreamingWritesToMetadataTable) throws IOException {
+    if (!metadata.getExtraMetadata().containsKey(SerDeHelper.LATEST_SCHEMA)
+        && metadata.getExtraMetadata().containsKey(HoodieCommitMetadata.SCHEMA_KEY)
+        && table.getConfig().getSchemaEvolutionEnable()
+        && table.getMetaClient().getTableConfig().usesNarrowIntAndCharTypes()) {
+      saveInternalSchemaKeepingNarrowTypes(table, instantTime, metadata);
+    }
+    super.commit(table, commitActionType, instantTime, metadata, tableWriteStats, skipStreamingWritesToMetadataTable);
+  }
+
+  /**
+   * {@code BaseHoodieWriteClient#saveInternalSchema}, with INT8, INT16 and CHAR(n) taken back into the commit's schema.
+   */
+  private void saveInternalSchemaKeepingNarrowTypes(HoodieTable table, String instantTime, HoodieCommitMetadata metadata) {
+    TableSchemaResolver schemaUtil = new TableSchemaResolver(table.getMetaClient());
+    String historySchemaStr = schemaUtil.getTableHistorySchemaStrFromCommitMetadata().orElse("");
+    FileBasedInternalSchemaStorageManager schemasManager = new FileBasedInternalSchemaStorageManager(table.getMetaClient());
+    if (historySchemaStr.isEmpty() && !Boolean.parseBoolean(config.getString(HoodieCommonConfig.RECONCILE_SCHEMA.key()))) {
+      return;
+    }
+    InternalSchema internalSchema;
+    HoodieSchema schema = HoodieSchemaUtils.createHoodieWriteSchema(config.getSchema(), config.allowOperationMetadataField());
+    if (historySchemaStr.isEmpty()) {
+      internalSchema = SerDeHelper.fromJson(config.getInternalSchema()).orElseGet(() -> InternalSchemaConverter.convert(schema));
+      internalSchema.setSchemaId(Long.parseLong(instantTime));
+    } else {
+      internalSchema = InternalSchemaUtils.searchSchema(Long.parseLong(instantTime), SerDeHelper.parseSchemas(historySchemaStr));
+    }
+    InternalSchema evolvedSchema = AvroSchemaEvolutionUtils.reconcileSchema(schema, internalSchema,
+        config.getBooleanOrDefault(HoodieCommonConfig.SET_NULL_FOR_MISSING_COLUMNS),
+        SchemaChangeUtils.parseTimestampLogicalTypeOverrides(
+            config.getStringOrDefault(HoodieCommonConfig.TIMESTAMP_LOGICAL_TYPE_OVERRIDES)));
+    if (evolvedSchema.equals(internalSchema)) {
+      metadata.addMetadata(SerDeHelper.LATEST_SCHEMA, SerDeHelper.toJson(evolvedSchema));
+      schemasManager.persistHistorySchemaStr(instantTime, historySchemaStr.isEmpty() ? SerDeHelper.inheritSchemas(evolvedSchema, "") : historySchemaStr);
+    } else {
+      evolvedSchema.setSchemaId(Long.parseLong(instantTime));
+      String newSchemaStr = SerDeHelper.toJson(evolvedSchema);
+      metadata.addMetadata(SerDeHelper.LATEST_SCHEMA, newSchemaStr);
+      schemasManager.persistHistorySchemaStr(instantTime, SerDeHelper.inheritSchemas(evolvedSchema, historySchemaStr));
+    }
+    HoodieSchema tableSchema = null;
+    try {
+      tableSchema = schemaUtil.getTableSchema(false);
+    } catch (Exception e) {
+      // no table schema yet: the writer schema is the only source
+    }
+    HoodieSchema converted = InternalSchemaConverter.convert(evolvedSchema, schema.getFullName());
+    metadata.addMetadata(HoodieCommitMetadata.SCHEMA_KEY, NarrowTypeRestorer.restore(converted, Arrays.asList(schema, tableSchema)).toString());
+  }
+
+  /**
+   * As {@link #commitTableChange(InternalSchema, HoodieTableMetaClient)}, with {@code tableSchema} as the table schema
+   * the change commits instead of the schema converted from {@code newSchema}.
+   *
+   * <p>InternalSchema has no INT8, INT16 or CHAR (RFC-88): converted back, such columns are INT and STRING. A table
+   * that maps Flink TINYINT, SMALLINT and CHAR(n) to them keeps them by passing the converted schema with them taken
+   * back ({@code tableSchema}); the InternalSchema history is the same either way.
+   */
+  public void commitTableChange(InternalSchema newSchema, HoodieSchema tableSchema, HoodieTableMetaClient metaClient) {
+    TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
+    String historySchemaStr = schemaUtil.getTableHistorySchemaStrFromCommitMetadata().orElseGet(
+        () -> SerDeHelper.inheritSchemas(schemaUtil.getTableInternalSchemaFromCommitMetadata().orElseGet(() -> {
+          try {
+            return InternalSchemaConverter.convert(schemaUtil.getTableSchema());
+          } catch (Exception e) {
+            throw new HoodieException(String.format("cannot find schema for current table: %s", config.getBasePath()), e);
+          }
+        }), ""));
+    String commitActionType = CommitUtils.getCommitActionType(WriteOperationType.ALTER_SCHEMA, metaClient.getTableType());
+    String instantTime = startCommit(commitActionType, metaClient);
+    config.setSchema(tableSchema.toString());
+    HoodieActiveTimeline timeLine = metaClient.getActiveTimeline();
+    HoodieInstant requested = metaClient.createNewInstant(HoodieInstant.State.REQUESTED, commitActionType, instantTime);
+    HoodieCommitMetadata metadata = new HoodieCommitMetadata();
+    metadata.setOperationType(WriteOperationType.ALTER_SCHEMA);
+    try {
+      timeLine.transitionRequestedToInflight(requested, Option.of(metadata));
+    } catch (HoodieIOException io) {
+      throw new HoodieCommitException("Failed to commit " + instantTime + " unable to save inflight metadata ", io);
+    }
+    Map<String, String> extraMeta = new HashMap<>();
+    extraMeta.put(SerDeHelper.LATEST_SCHEMA, SerDeHelper.toJson(newSchema.setSchemaId(Long.parseLong(instantTime))));
+    FileBasedInternalSchemaStorageManager schemasManager = new FileBasedInternalSchemaStorageManager(metaClient);
+    schemasManager.persistHistorySchemaStr(instantTime, SerDeHelper.inheritSchemas(newSchema, historySchemaStr));
+    commitStats(instantTime, Collections.emptyList(), Option.of(extraMeta), commitActionType);
   }
 
   /**

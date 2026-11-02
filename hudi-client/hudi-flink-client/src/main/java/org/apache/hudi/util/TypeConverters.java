@@ -46,6 +46,7 @@ import java.util.stream.IntStream;
 
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.ARRAY;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.BIGINT;
+import static org.apache.flink.table.types.logical.LogicalTypeRoot.CHAR;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.DATE;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.DECIMAL;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.DOUBLE;
@@ -53,6 +54,8 @@ import static org.apache.flink.table.types.logical.LogicalTypeRoot.FLOAT;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.INTEGER;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.MAP;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.ROW;
+import static org.apache.flink.table.types.logical.LogicalTypeRoot.SMALLINT;
+import static org.apache.flink.table.types.logical.LogicalTypeRoot.TINYINT;
 import static org.apache.flink.table.types.logical.LogicalTypeRoot.VARCHAR;
 
 /**
@@ -79,6 +82,35 @@ public class TypeConverters {
   public static TypeConverter getInstance(LogicalType fromType, LogicalType toType) {
     LogicalTypeRoot from = fromType.getTypeRoot();
     LogicalTypeRoot to = toType.getTypeRoot();
+    if (from == TINYINT || from == SMALLINT) {
+      // INT8 and INT16 (RFC-88) widen as INT does: to INT16 (from INT8), INT, LONG, FLOAT, DOUBLE, DECIMAL, STRING
+      if (to == SMALLINT && from == TINYINT) {
+        return new TypeConverter() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public Object convert(Object val) {
+            return ((Number) val).shortValue();
+          }
+        };
+      }
+      if (to == INTEGER) {
+        return new TypeConverter() {
+          private static final long serialVersionUID = 1L;
+
+          @Override
+          public Object convert(Object val) {
+            return ((Number) val).intValue();
+          }
+        };
+      }
+      // the INT converters take any Number
+      from = INTEGER;
+    }
+    if (from == CHAR && to == VARCHAR) {
+      // CHAR(n) widens to STRING (RFC-88); both are StringData, with the CHAR's padding
+      return NOOP_CONVERTER;
+    }
 
     switch (to) {
       case BIGINT: {

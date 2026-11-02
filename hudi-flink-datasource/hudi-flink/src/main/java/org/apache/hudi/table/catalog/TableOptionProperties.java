@@ -197,16 +197,25 @@ public class TableOptionProperties {
     return copied;
   }
 
+  /**
+   * The Spark table properties of the table.
+   *
+   * @param narrowIntAndChar whether the table maps TINYINT, SMALLINT and CHAR(n) to INT8, INT16 and CHAR(n), which
+   *                         Spark sees as byte, short and char(n) (RFC-88; see
+   *                         {@code HoodieTableConfig#usesNarrowIntAndCharTypes})
+   */
   public static Map<String, String> translateFlinkTableProperties2Spark(
       CatalogTable catalogTable,
       Map<String, String> properties,
       List<String> partitionKeys,
-      boolean withOperationField) {
+      boolean withOperationField,
+      boolean narrowIntAndChar) {
     RowType rowType = supplementMetaFields(DataTypeUtils.toRowType(catalogTable.getUnresolvedSchema()), withOperationField);
     HoodieSchema schema = HoodieSchemaConverter.convertToSchema(
         rowType,
         "record",
-        catalogTable.getOptions().get(FlinkOptions.VECTOR_COLUMNS.key()));
+        catalogTable.getOptions().get(FlinkOptions.VECTOR_COLUMNS.key()),
+        narrowIntAndChar);
     String sparkVersion = catalogTable.getOptions().getOrDefault(SPARK_VERSION, DEFAULT_SPARK_VERSION);
     Map<String, String> sparkTableProperties = SparkDataSourceTableUtils.getSparkTableProperties(
         partitionKeys,

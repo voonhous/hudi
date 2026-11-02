@@ -22,16 +22,21 @@ import org.apache.hudi.adapter.Utils;
 import org.apache.hudi.client.HoodieFlinkWriteClient;
 import org.apache.hudi.common.model.PartitionBucketIndexHashingConfig;
 import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.schema.internal.Type;
 import org.apache.hudi.common.schema.internal.convert.InternalSchemaConverter;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.configuration.HadoopConfigurations;
 import org.apache.hudi.exception.HoodieCatalogException;
+import org.apache.hudi.util.DataTypeUtils;
 import org.apache.hudi.util.FlinkWriteClients;
 import org.apache.hudi.util.HoodieSchemaConverter;
 import org.apache.hudi.util.StreamerUtil;
@@ -45,10 +50,12 @@ import org.apache.flink.table.catalog.CatalogPartitionSpec;
 import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.catalog.CatalogView;
 import org.apache.flink.table.catalog.ObjectPath;
+import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.catalog.exceptions.CatalogException;
 import org.apache.flink.table.catalog.exceptions.PartitionSpecInvalidException;
 import org.apache.flink.table.catalog.exceptions.TableNotExistException;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.RowType;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -64,6 +71,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -233,14 +241,76 @@ public class HoodieCatalogUtil {
       HoodieFlinkWriteClient<?> writeClient = createWriteClient(tablePath, oldTable, hadoopConf, inferTablePathFunc);
       Pair<InternalSchema, HoodieTableMetaClient> pair = writeClient.getInternalSchemaAndMetaClient();
       InternalSchema oldSchema = pair.getLeft();
-      Function<LogicalType, Type> convertFunc = (LogicalType logicalType) -> InternalSchemaConverter.convertToField(HoodieSchemaConverter.convertToSchema(logicalType));
+      HoodieTableMetaClient metaClient = pair.getRight();
+      // the table's mapping of TINYINT, SMALLINT and CHAR(n) (RFC-88)
+      boolean narrowIntAndChar = metaClient.getTableConfig().usesNarrowIntAndCharTypes();
+      Function<LogicalType, Type> convertFunc = (LogicalType logicalType) ->
+          InternalSchemaConverter.convertToField(HoodieSchemaConverter.convertToSchema(logicalType, narrowIntAndChar));
       InternalSchema newSchema = Utils.applyTableChange(oldSchema, tableChanges, convertFunc);
-      if (!oldSchema.equals(newSchema)) {
-        writeClient.setOperationType(WriteOperationType.ALTER_SCHEMA);
-        writeClient.commitTableChange(newSchema, pair.getRight());
+      if (!narrowIntAndChar) {
+        if (!oldSchema.equals(newSchema)) {
+          writeClient.setOperationType(WriteOperationType.ALTER_SCHEMA);
+          writeClient.commitTableChange(newSchema, metaClient);
+        }
+      } else {
+        // InternalSchema has no INT8, INT16 or CHAR: the table schema takes them back from the new table definition,
+        // which also changes them where InternalSchema sees no change (TINYINT to SMALLINT, CHAR(n) to STRING)
+        RowType newRowType = (RowType) ((ResolvedCatalogTable) newTable).getResolvedSchema().toPhysicalRowDataType().getLogicalType();
+        HoodieSchema tableSchema = DataTypeUtils.restoreNarrowTypes(
+            InternalSchemaConverter.convert(newSchema, HoodieSchemaUtils.getRecordQualifiedName(writeClient.getConfig().getTableName())),
+            newRowType,
+            HoodieSchemaConverter.convertToSchema(newRowType, true));
+        if (!oldSchema.equals(newSchema) || !narrowTypes(tableSchema).equals(narrowTypes(currentTableSchema(metaClient)))) {
+          writeClient.setOperationType(WriteOperationType.ALTER_SCHEMA);
+          writeClient.commitTableChange(newSchema, tableSchema, metaClient);
+        }
       }
     }
     postAlterTableFunc.accept(tablePath, newTable);
+  }
+
+  private static HoodieSchema currentTableSchema(HoodieTableMetaClient metaClient) {
+    try {
+      return new TableSchemaResolver(metaClient).getTableSchema(false);
+    } catch (Exception e) {
+      throw new HoodieCatalogException("Failed to resolve the table schema of " + metaClient.getBasePath(), e);
+    }
+  }
+
+  /**
+   * The INT8, INT16 and CHAR(n) columns of {@code schema} (at any depth) and their types, by field path.
+   */
+  @VisibleForTesting
+  static Map<String, String> narrowTypes(HoodieSchema schema) {
+    Map<String, String> types = new TreeMap<>();
+    collectNarrowTypes(schema, "", types);
+    return types;
+  }
+
+  private static void collectNarrowTypes(HoodieSchema schema, String path, Map<String, String> types) {
+    HoodieSchema nonNull = schema.getNonNullType();
+    switch (nonNull.getType()) {
+      case INT8:
+      case INT16:
+        types.put(path, nonNull.getType().name());
+        break;
+      case CHAR:
+        types.put(path, "CHAR(" + ((HoodieSchema.Char) nonNull).getLength() + ")");
+        break;
+      case RECORD:
+        for (HoodieSchemaField field : nonNull.getFields()) {
+          collectNarrowTypes(field.schema(), path.isEmpty() ? field.name() : path + "." + field.name(), types);
+        }
+        break;
+      case ARRAY:
+        collectNarrowTypes(nonNull.getElementType(), path + ".element", types);
+        break;
+      case MAP:
+        collectNarrowTypes(nonNull.getValueType(), path + ".value", types);
+        break;
+      default:
+        break;
+    }
   }
 
   protected static HoodieFlinkWriteClient<?> createWriteClient(

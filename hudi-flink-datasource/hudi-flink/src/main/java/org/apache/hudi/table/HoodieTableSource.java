@@ -684,7 +684,8 @@ public class HoodieTableSource extends FileIndexReader implements
     HoodieSchema schema = HoodieSchemaConverter.convertToSchema(
         this.tableRowType,
         HoodieSchemaUtils.getRecordQualifiedName(conf.get(FlinkOptions.TABLE_NAME)),
-        conf.get(FlinkOptions.VECTOR_COLUMNS));
+        conf.get(FlinkOptions.VECTOR_COLUMNS),
+        StreamerUtil.usesNarrowIntAndCharTypes(conf));
     return HoodieSchemaUtils.addMetadataFields(schema, conf.get(FlinkOptions.CHANGELOG_ENABLED));
   }
 
