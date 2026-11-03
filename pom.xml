@@ -44,6 +44,8 @@
     <module>hudi-hadoop-common</module>
     <module>hudi-hadoop-mr</module>
     <module>hudi-io</module>
+    <module>hudi-benchmarks</module>
+    <module>hudi-flink-benchmarks</module>
     <module>hudi-spark-datasource</module>
     <module>hudi-timeline-service</module>
     <module>hudi-utilities</module>

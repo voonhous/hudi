@@ -1,0 +1,228 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package org.apache.hudi.benchmarks.rowwriter;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.hadoop.api.WriteSupport;
+import org.apache.parquet.io.api.Binary;
+import org.apache.parquet.io.api.RecordConsumer;
+import org.apache.parquet.schema.GroupType;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
+import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.PrimitiveType;
+import org.apache.parquet.schema.Type;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Prototype of the one Parquet writer per format: value writers are chosen from the physical
+ * schema alone and read every engine's rows through {@link HoodieRow}.
+ */
+public final class HoodieRowParquetWriter extends WriteSupport<HoodieRow> {
+  // Spark's EXCEPTION rebase mode: reject values before the 1582-10-15 Gregorian switch.
+  private static final int LAST_SWITCH_GREGORIAN_DAY = -141427;
+  private static final long LAST_SWITCH_GREGORIAN_MICROS = -12219292800000000L;
+
+  @FunctionalInterface
+  private interface FieldWriter {
+    void write(HoodieGetters getters, int ordinal);
+  }
+
+  private final MessageType schema;
+  private final Map<String, String> extraMetadata;
+  private final String[] rootNames;
+  private final FieldWriter[] rootWriters;
+  private final BinaryRef ref = new BinaryRef();
+  private RecordConsumer consumer;
+
+  public HoodieRowParquetWriter(MessageType schema, Map<String, String> extraMetadata) {
+    this.schema = schema;
+    this.extraMetadata = extraMetadata;
+    this.rootNames = names(schema);
+    this.rootWriters = writers(schema);
+  }
+
+  @Override
+  public WriteContext init(Configuration configuration) {
+    return new WriteContext(schema, extraMetadata);
+  }
+
+  @Override
+  public void prepareForWrite(RecordConsumer recordConsumer) {
+    this.consumer = recordConsumer;
+  }
+
+  @Override
+  public void write(HoodieRow row) {
+    consumer.startMessage();
+    writeFields(row, rootNames, rootWriters);
+    consumer.endMessage();
+  }
+
+  @Override
+  public FinalizedWriteContext finalizeWrite() {
+    return new FinalizedWriteContext(Collections.emptyMap());
+  }
+
+  private void writeFields(HoodieGetters getters, String[] names, FieldWriter[] writers) {
+    for (int i = 0; i < writers.length; i++) {
+      if (!getters.isNullAt(i)) {
+        consumer.startField(names[i], i);
+        writers[i].write(getters, i);
+        consumer.endField(names[i], i);
+      }
+    }
+  }
+
+  private static String[] names(GroupType group) {
+    List<Type> fields = group.getFields();
+    String[] names = new String[fields.size()];
+    for (int i = 0; i < names.length; i++) {
+      names[i] = fields.get(i).getName();
+    }
+    return names;
+  }
+
+  private FieldWriter[] writers(GroupType group) {
+    List<Type> fields = group.getFields();
+    FieldWriter[] writers = new FieldWriter[fields.size()];
+    for (int i = 0; i < writers.length; i++) {
+      writers[i] = makeWriter(fields.get(i));
+    }
+    return writers;
+  }
+
+  private FieldWriter makeWriter(Type type) {
+    if (type.isPrimitive()) {
+      return makePrimitiveWriter(type.asPrimitiveType());
+    }
+    GroupType group = type.asGroupType();
+    if (group.getLogicalTypeAnnotation() instanceof LogicalTypeAnnotation.ListLogicalTypeAnnotation) {
+      GroupType repeated = group.getType(0).asGroupType();
+      String repeatedName = repeated.getName();
+      String elementName = repeated.getType(0).getName();
+      FieldWriter elementWriter = makeWriter(repeated.getType(0));
+      return (getters, ordinal) -> {
+        HoodieArray array = getters.getArray(ordinal);
+        consumer.startGroup();
+        int n = array.numElements();
+        if (n > 0) {
+          consumer.startField(repeatedName, 0);
+          for (int j = 0; j < n; j++) {
+            consumer.startGroup();
+            if (!array.isNullAt(j)) {
+              consumer.startField(elementName, 0);
+              elementWriter.write(array, j);
+              consumer.endField(elementName, 0);
+            }
+            consumer.endGroup();
+          }
+          consumer.endField(repeatedName, 0);
+        }
+        consumer.endGroup();
+      };
+    }
+    String[] names = names(group);
+    FieldWriter[] writers = writers(group);
+    int numFields = names.length;
+    return (getters, ordinal) -> {
+      HoodieRow struct = getters.getRow(ordinal, numFields);
+      consumer.startGroup();
+      writeFields(struct, names, writers);
+      consumer.endGroup();
+    };
+  }
+
+  private FieldWriter makePrimitiveWriter(PrimitiveType type) {
+    LogicalTypeAnnotation annotation = type.getLogicalTypeAnnotation();
+    switch (type.getPrimitiveTypeName()) {
+      case BOOLEAN:
+        return (getters, ordinal) -> consumer.addBoolean(getters.getBoolean(ordinal));
+      case INT32:
+        if (annotation instanceof LogicalTypeAnnotation.DateLogicalTypeAnnotation) {
+          return (getters, ordinal) -> {
+            int days = getters.getInt(ordinal);
+            if (days < LAST_SWITCH_GREGORIAN_DAY) {
+              throw new IllegalStateException("Date before the Gregorian switch: " + days);
+            }
+            consumer.addInteger(days);
+          };
+        }
+        return (getters, ordinal) -> consumer.addInteger(getters.getInt(ordinal));
+      case INT64:
+        if (annotation instanceof LogicalTypeAnnotation.TimestampLogicalTypeAnnotation) {
+          return (getters, ordinal) -> {
+            long micros = getters.getLong(ordinal);
+            if (micros < LAST_SWITCH_GREGORIAN_MICROS) {
+              throw new IllegalStateException("Timestamp before the Gregorian switch: " + micros);
+            }
+            consumer.addLong(micros);
+          };
+        }
+        return (getters, ordinal) -> consumer.addLong(getters.getLong(ordinal));
+      case FLOAT:
+        return (getters, ordinal) -> consumer.addFloat(getters.getFloat(ordinal));
+      case DOUBLE:
+        return (getters, ordinal) -> consumer.addDouble(getters.getDouble(ordinal));
+      case BINARY:
+        return (getters, ordinal) -> {
+          getters.getBinaryRef(ordinal, ref);
+          consumer.addBinary(Binary.fromReusedByteArray(ref.array, ref.offset, ref.length));
+        };
+      case FIXED_LEN_BYTE_ARRAY:
+        if (annotation instanceof LogicalTypeAnnotation.DecimalLogicalTypeAnnotation) {
+          LogicalTypeAnnotation.DecimalLogicalTypeAnnotation decimal =
+              (LogicalTypeAnnotation.DecimalLogicalTypeAnnotation) annotation;
+          return makeDecimalWriter(decimal.getPrecision(), decimal.getScale(), type.getTypeLength());
+        }
+        throw new UnsupportedOperationException("Unsupported fixed type: " + type);
+      default:
+        throw new UnsupportedOperationException("Unsupported type: " + type);
+    }
+  }
+
+  private FieldWriter makeDecimalWriter(int precision, int scale, int numBytes) {
+    byte[] buffer = new byte[numBytes];
+    if (precision <= 18) {
+      return (getters, ordinal) -> {
+        long unscaled = getters.getDecimalUnscaledLong(ordinal, precision, scale);
+        for (int k = numBytes - 1; k >= 0; k--) {
+          buffer[k] = (byte) unscaled;
+          unscaled >>= 8;
+        }
+        consumer.addBinary(Binary.fromReusedByteArray(buffer, 0, numBytes));
+      };
+    }
+    return (getters, ordinal) -> {
+      byte[] bytes = getters.getDecimalUnscaledBytes(ordinal, precision, scale);
+      byte[] padded = bytes;
+      if (bytes.length != numBytes) {
+        byte sign = bytes[0] < 0 ? (byte) -1 : (byte) 0;
+        Arrays.fill(buffer, 0, numBytes - bytes.length, sign);
+        System.arraycopy(bytes, 0, buffer, numBytes - bytes.length, bytes.length);
+        padded = buffer;
+      }
+      consumer.addBinary(Binary.fromReusedByteArray(padded, 0, numBytes));
+    };
+  }
+}
